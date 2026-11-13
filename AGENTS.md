@@ -70,7 +70,7 @@ Supporting agenda items: kickoff and notebook clone (15 min), breaks and mid-poi
 
 ## Repository State
 
-The repository is greenfield. Currently checked in: `LICENSE` (Apache-2.0) only. `.venv/` is a local Python 3.12 virtual environment used for host-side work; it is scratch, not a deliverable, and MUST NOT be committed.
+The repository is greenfield: the compose stack and dependency manifest exist, the notebook does not. Currently checked in: `LICENSE` (Apache-2.0), `AGENTS.md`, `docker-compose.yml`, `Dockerfile`, `requirements.txt`, `.env.example`, and `.gitignore`. `.venv/` is a local Python 3.12 virtual environment used for host-side work; it is scratch, not a deliverable, and MUST NOT be committed.
 
 Expected layout once the exercises exist:
 
@@ -80,10 +80,11 @@ docker-compose.yml      self-hosted Langfuse stack plus the jupyter service
 Dockerfile              jupyter image build; installs requirements.txt
 requirements.txt        dependency manifest (single source of pinned deps)
 data/                   sample documents and fixtures used by the exercises
+.env.example            documented template for uncommitted .env overrides
 README.md               participant guide: setup, keys, activity walkthrough
 ```
 
-`.env` carries compose and inference configuration; it is required for the stack and MUST NOT be committed.
+`.env` carries inference and compose overrides; it MUST NOT be committed. `.env.example` documents the variables participants normally set.
 
 Do not create directories speculatively. Add `data/` when the first exercise needs it.
 
@@ -106,10 +107,9 @@ Install dependencies into `.venv` for host-side work, never into the system inte
 .venv/bin/pip install -r requirements.txt
 ```
 
-Run the participant notebook interactively, either inside the stack or on the host:
+Run the participant notebook interactively. The jupyter service serves JupyterLab at `http://localhost:8888` with the token from `JUPYTER_TOKEN`; host-side runs use the local environment:
 
 ```bash
-docker compose exec jupyter jupyter lab notebook.ipynb --ip=0.0.0.0
 .venv/bin/jupyter lab notebook.ipynb
 ```
 
@@ -120,12 +120,12 @@ docker compose exec jupyter jupyter nbconvert --to notebook --execute --inplace 
 .venv/bin/jupyter nbconvert --to notebook --execute --inplace notebook.ipynb
 ```
 
-Langfuse credentials come from the environment; they are never written into cells. The stack is self-hosted, so the notebook reaches it at `http://langfuse:3000` from the jupyter container and at `http://localhost:3000` from the host:
+Langfuse credentials come from the environment; they are never written into cells. The stack is self-hosted and seeds a project with `LANGFUSE_INIT_PROJECT_PUBLIC_KEY` / `LANGFUSE_INIT_PROJECT_SECRET_KEY`; the notebook reaches it at `http://langfuse:3000` from the jupyter container and at `http://localhost:3000` from the host:
 
 ```bash
 export LANGFUSE_PUBLIC_KEY=pk-lf-...
 export LANGFUSE_SECRET_KEY=sk-lf-...
-export LANGFUSE_HOST=http://localhost:3000   # http://langfuse:3000 inside the compose network
+export LANGFUSE_BASE_URL=http://localhost:3000   # http://langfuse:3000 inside the compose network
 ```
 
 Inference is hosted outside the stack. The notebook reads an OpenAI-compatible endpoint from the environment:
@@ -136,7 +136,7 @@ export OPENAI_API_KEY=...
 export OPENAI_MODEL=...
 ```
 
-If a `.env` file is used, it MUST stay uncommitted and be loaded explicitly — by `docker compose` for interpolation and by the host shell when running under `.venv` — so participants are not surprised by hidden state.
+If a `.env` file is used, it MUST stay uncommitted. `docker compose` reads it for interpolation; when running under `.venv` on the host, source it explicitly — so participants are not surprised by hidden state.
 
 ## Notebook Conventions
 
