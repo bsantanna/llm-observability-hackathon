@@ -53,7 +53,7 @@ Boundaries:
 
 - The deliverable is the notebook participants clone and execute, plus the minimum support files it needs (dependency manifest, sample data, docs). Do not add application code, services, or deployment infrastructure.
 - Langfuse is the observability backend. Do not build custom logging, dashboards, or telemetry plumbing that Langfuse already provides.
-- Keep the exercises runnable by a participant on a laptop, with their own Langfuse keys, in one sitting. No cluster, no database, no Docker requirement unless a participant already has it.
+- Keep the exercises runnable by a participant on a laptop, in one sitting, against the repository's compose stack, with keys they create in the local Langfuse project. Docker and Docker Compose are prerequisites: the stack provides the Langfuse backend (postgres, clickhouse, redis, minio, langfuse web/worker) and the jupyter service. No cluster and no external database beyond that stack; inference is hosted outside it.
 - Activity numbering, ordering, and the bugs planted in activities 3 and 4 are participant-facing contracts. Changing them changes the exercise; update the notebook, README, and mentor notes in the same change.
 - Prefer boring, explicit notebook code over abstraction. A helper used in one activity stays inline in that activity.
 
@@ -70,48 +70,73 @@ Supporting agenda items: kickoff and notebook clone (15 min), breaks and mid-poi
 
 ## Repository State
 
-The repository is greenfield. Currently checked in: `LICENSE` (Apache-2.0) only. `.venv/` is a local Python 3.12 virtual environment and is scratch, not a deliverable; it MUST NOT be committed.
+The repository is greenfield. Currently checked in: `LICENSE` (Apache-2.0) only. `.venv/` is a local Python 3.12 virtual environment used for host-side work; it is scratch, not a deliverable, and MUST NOT be committed.
 
 Expected layout once the exercises exist:
 
 ```text
 notebook.ipynb          participant notebook, one section per activity
+docker-compose.yml      self-hosted Langfuse stack plus the jupyter service
+Dockerfile              jupyter image build; installs requirements.txt
 requirements.txt        dependency manifest (single source of pinned deps)
 data/                   sample documents and fixtures used by the exercises
 README.md               participant guide: setup, keys, activity walkthrough
 ```
 
+`.env` carries compose and inference configuration; it is required for the stack and MUST NOT be committed.
+
 Do not create directories speculatively. Add `data/` when the first exercise needs it.
+
+## Dependencies
+
+`requirements.txt` is the single pinned manifest; do not maintain a second dependency list. It MUST include `langfuse`, and notebooks MUST call the model through its OpenAI wrapper (`from langfuse.openai import OpenAI`) instead of the bare `openai` client, so generations are traced without hand-written instrumentation. The same manifest installs into `.venv` and into the jupyter image.
 
 ## Commands
 
-Setup uses the local virtual environment. Install dependencies into `.venv`, never into the system interpreter:
+Start the stack (Langfuse and jupyter) and validate its configuration:
+
+```bash
+docker compose config
+docker compose up -d
+```
+
+Install dependencies into `.venv` for host-side work, never into the system interpreter:
 
 ```bash
 .venv/bin/pip install -r requirements.txt
 ```
 
-Run the participant notebook interactively:
+Run the participant notebook interactively, either inside the stack or on the host:
 
 ```bash
+docker compose exec jupyter jupyter lab notebook.ipynb --ip=0.0.0.0
 .venv/bin/jupyter lab notebook.ipynb
 ```
 
 Execute the notebook headlessly to prove it still runs end-to-end:
 
 ```bash
+docker compose exec jupyter jupyter nbconvert --to notebook --execute --inplace notebook.ipynb
 .venv/bin/jupyter nbconvert --to notebook --execute --inplace notebook.ipynb
 ```
 
-Langfuse credentials come from the environment; they are never written into cells:
+Langfuse credentials come from the environment; they are never written into cells. The stack is self-hosted, so the notebook reaches it at `http://langfuse:3000` from the jupyter container and at `http://localhost:3000` from the host:
 
 ```bash
 export LANGFUSE_PUBLIC_KEY=pk-lf-...
 export LANGFUSE_SECRET_KEY=sk-lf-...
-export LANGFUSE_HOST=https://cloud.langfuse.com
+export LANGFUSE_HOST=http://localhost:3000   # http://langfuse:3000 inside the compose network
 ```
 
-If a `.env` file is used, it MUST stay uncommitted and be loaded explicitly, so participants are not surprised by hidden state.
+Inference is hosted outside the stack. The notebook reads an OpenAI-compatible endpoint from the environment:
+
+```bash
+export OPENAI_BASE_URL=https://<provider>/v1
+export OPENAI_API_KEY=...
+export OPENAI_MODEL=...
+```
+
+If a `.env` file is used, it MUST stay uncommitted and be loaded explicitly — by `docker compose` for interpolation and by the host shell when running under `.venv` — so participants are not surprised by hidden state.
 
 ## Notebook Conventions
 
@@ -121,7 +146,7 @@ Match the existing style once cells exist. Do not reformat untouched sections.
 - Cells MUST execute top-to-bottom in a fresh kernel without manual reordering. Clear stale outputs before committing; the notebook ships executed, with outputs that show the comparison the activity asks for.
 - Deterministic by default: fixed seeds, fixed prompts, fixed inputs. Where randomness is the point (sampling, temperature), say so in the cell and record the parameters in the trace.
 - No secrets, absolute local paths, or machine-specific state in cells. Read configuration from the environment and fail loudly when a key is missing.
-- Keep model and tool configuration in a small number of cells near the top of each section so participants can change one thing and observe the effect.
+- Keep model and tool configuration in a small number of cells near the top of each section so participants can change one thing and observe the effect. Model configuration cells read `OPENAI_BASE_URL`, `OPENAI_API_KEY`, and `OPENAI_MODEL` from the environment and fail loudly when any is missing.
 - Print or display only what the activity asks participants to compare: the answer, the trace id or URL, token counts, cost, latency. Avoid dumping raw JSON.
 - Planted defects in activities 3 and 4 MUST be visible in the trace, not hidden behind a comment that explains them. The participant finds the cause from observability data.
 
@@ -131,7 +156,7 @@ The exercises are worthless if traces are uninformative. Every activity MUST pro
 
 - Name traces and spans by activity (for example `activity-1-rag-no-filter`, `activity-4-tool-call`), so participants and mentors can find them without guessing.
 - Attach the prompts, retrieved documents, tool arguments, and tool results to the corresponding generation or span. A trace that only records latency cannot support activities 3 and 4.
-- Record model name, parameters, token usage, and cost per generation. Mentors capture these numbers during the hackathon; do not compute them by hand when the SDK reports them.
+- Instantiate the model client through `langfuse.openai` so every call is recorded as a generation with model, parameters, token usage, and cost; keep the wrapper active in every activity, including the deliberately broken ones. Mentors capture these numbers during the hackathon; do not compute them by hand when the SDK reports them.
 - Use one Langfuse session per activity run and tag it with the activity number, so comparisons between variants stay grouped.
 - Flush the client before the notebook ends; a missing flush loses the last traces and looks like a bug in the exercise.
 - Never log secrets or full document corpora beyond what the activity needs.
@@ -143,6 +168,7 @@ There is no test suite or linter. Verification is execution plus observation:
 - A change to an activity is verified by executing the notebook section in a fresh kernel and confirming its trace appears in Langfuse with the spans the activity depends on.
 - A change to prompts or model configuration is verified by comparing the before and after traces, not by reading the answer.
 - A change to setup, dependencies, or credentials handling is verified by running the notebook from a clean environment with only the documented variables set.
+- A change to the compose stack or jupyter image is verified with `docker compose config` and a full notebook execution inside the jupyter service.
 - Activities 3 and 4 are verified by confirming the defect reproduces before the fix and disappears after it, with the trace showing the difference.
 - CI, if added, runs notebook execution only; it cannot assert on trace content unless it talks to a Langfuse project.
 
