@@ -55,16 +55,16 @@ Boundaries:
 - Langfuse is the observability backend. Do not build custom logging, dashboards, or telemetry plumbing that Langfuse already provides.
 - Keep the exercises runnable by a participant on a laptop, in one sitting, against the repository's compose stack, with keys they create in the local Langfuse project. Docker and Docker Compose are prerequisites: the stack provides the Langfuse backend (postgres, clickhouse, redis, minio, langfuse web/worker) and the jupyter service. No cluster and no external database beyond that stack; inference is hosted outside it.
 - Activity numbering, ordering, and the bugs planted in activities 3 and 4 are participant-facing contracts. Changing them changes the exercise; update the notebooks, README, and mentor notes in the same change.
-- Prefer boring, explicit notebook code over abstraction. A helper used in one activity stays inline in that activity.
+- Prefer boring, explicit code over abstraction. Reusable activity logic lives in `experiment_utils.py`; notebooks call it and focus on the activity logs. A one-off display helper can stay inline.
 
 Agenda:
 
 | Activity | Topic | Duration | Participant outcome |
 |---|---|---|---|
-| 1 | RAG with and without filter | 35 min | Compare traces with and without retrieval filtering |
-| 2 | Output format | 20 min | Compare traces for constrained vs unconstrained output |
-| 3 | Fix hallucination | 20 min | Locate the hallucination in traces and fix the system prompt |
-| 4 | Debug tool calling | 40 min | Diagnose a broken tool call from trace data and repair it |
+| 1 | Searching the right policy (RAG) | 35 min | Compare the answers and the policies found with and without the fare filter |
+| 2 | Getting a usable answer (output format) | 20 min | Compare which answer the next system can use |
+| 3 | Correcting a wrong answer (hallucination) | 20 min | Find the wrong answer in the activity log and correct the instructions |
+| 4 | Fixing a failed lookup (tool calling) | 40 min | Find the failed lookup in the activity log and fix the tool |
 
 Supporting agenda items: kickoff and notebook clone (15 min), breaks and mid-point progress check (10 min each), conclusion and wrap-up (20 min), team demos (30 min), voting and winners announcement (20 min), open exploration (10 min).
 
@@ -75,11 +75,11 @@ The repository contains the compose stack, dependency manifest, sample data, sha
 Layout:
 
 ```text
-notebook-1-rag.ipynb    Activity 1: RAG with and without filter
-notebook-2-output-format.ipynb  Activity 2: output format
-notebook-3-hallucination.ipynb  Activity 3: fix hallucination
-notebook-4-tool-calling.ipynb   Activity 4: debug tool calling
-experiment_utils.py     shared setup: env validation, clients, corpus, trace helpers
+notebook-1-rag.ipynb    Activity 1: searching the right policy
+notebook-2-output-format.ipynb  Activity 2: getting a usable answer
+notebook-3-hallucination.ipynb  Activity 3: correcting a wrong answer
+notebook-4-tool-calling.ipynb   Activity 4: fixing a failed lookup
+experiment_utils.py     shared setup and activity helpers
 docker-compose.yml      self-hosted Langfuse stack plus the jupyter service
 Dockerfile              jupyter image build; installs requirements.txt
 requirements.txt        dependency manifest (single source of pinned deps)
@@ -147,10 +147,11 @@ If a `.env` file is used, it MUST stay uncommitted. `docker compose` reads it fo
 Match the existing style once cells exist. Do not reformat untouched sections.
 
 - One notebook per activity, numbered to match the agenda. Each notebook starts with a Markdown cell stating the purpose, the expected observation, the bad practice, the good practice, why the good practice works, and the deliverable for that activity.
+- Write for business participants: plain language, and explain technical terms (trace/activity log, span/step, generation/answer) the first time they appear.
 - Cells MUST execute top-to-bottom in a fresh kernel without manual reordering. Clear stale outputs before committing; the notebooks ship executed, with outputs that show the comparison the activity asks for.
 - Deterministic by default: fixed seeds, fixed prompts, fixed inputs. Where randomness is the point (sampling, temperature), say so in the cell and record the parameters in the trace.
 - No secrets, absolute local paths, or machine-specific state in cells. Read configuration from the environment and fail loudly when a key is missing.
-- Model and client configuration lives in `experiment_utils.py`; notebooks import it. The shared setup reads `LANGFUSE_*` and `OPENAI_*` from the environment and fails loudly when a key is missing.
+- Model, client, and activity logic live in `experiment_utils.py`; notebooks call it and focus on the activity logs. The shared setup reads `LANGFUSE_*` and `OPENAI_*` from the environment and stops with a clear error when a value is missing.
 - Print or display only what the activity asks participants to compare: the answer, the trace id or URL, token counts, cost, latency. Avoid dumping raw JSON.
 - Planted defects in activities 3 and 4 MUST be visible in the trace, not hidden behind a comment that explains them. The participant finds the cause from observability data.
 
