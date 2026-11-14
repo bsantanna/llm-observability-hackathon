@@ -1,0 +1,78 @@
+{
+  "documents": [
+    {
+      "id": "baggage-gold",
+      "title": "Gold fare baggage",
+      "tier": "gold",
+      "topic": "baggage",
+      "text": "Gold fare includes one 23 kg checked bag. A second checked bag costs 60 EUR."
+    },
+    {
+      "id": "baggage-silver",
+      "title": "Silver fare baggage",
+      "tier": "silver",
+      "topic": "baggage",
+      "text": "Silver fare includes one 23 kg checked bag. A second checked bag costs 60 EUR."
+    },
+    {
+      "id": "baggage-basic",
+      "title": "Basic fare baggage",
+      "tier": "basic",
+      "topic": "baggage",
+      "text": "Basic fare includes one cabin bag up to 7 kg. Checked baggage is not included; a 23 kg checked bag costs 45 EUR."
+    },
+    {
+      "id": "cancellation-basic",
+      "title": "Basic fare cancellation",
+      "tier": "basic",
+      "topic": "cancellation",
+      "text": "Basic tickets are non-refundable. Date changes cost 75 EUR plus fare difference."
+    },
+    {
+      "id": "cancellation-gold",
+      "title": "Gold fare cancellation",
+      "tier": "gold",
+      "topic": "cancellation",
+      "text": "Gold tickets can be cancelled free of charge up to 24 hours before departure."
+    },
+    {
+      "id": "seat-selection",
+      "title": "Gold seat selection",
+      "tier": "gold",
+      "topic": "seating",
+      "text": "Gold members select standard seats free of charge; extra-legroom seats cost 25 EUR."
+    },
+    {
+      "id": "pets-cabin",
+      "title": "Cabin pets",
+      "tier": "silver",
+      "topic": "pets",
+      "text": "One cabin pet is allowed on selected routes for 50 EUR; the carrier counts as the cabin bag."
+    },
+    {
+      "id": "visa-schengen",
+      "title": "Schengen visa",
+      "tier": "basic",
+      "topic": "visa",
+      "text": "Schengen visas are required for non-EU passport holders; apply at least 15 days before departure."
+    }
+  ],
+  "bookings": {
+    "SKY-1042": {
+      "status": "confirmed",
+      "origin": "Lisbon",
+      "destination": "Madrid",
+      "date": "2026-12-01",
+      "passengers": 2,
+      "cabin": "economy"
+    },
+    "SKY-2087": {
+      "status": "cancelled",
+      "origin": "Porto",
+      "destination": "Paris",
+      "date": "2026-11-20",
+      "passengers": 1,
+      "cabin": "economy"
+    }
+  }
+}
