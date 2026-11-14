@@ -116,8 +116,8 @@ Run the participant notebook interactively. The jupyter service serves JupyterLa
 Execute the notebook headlessly to prove it still runs end-to-end:
 
 ```bash
-docker compose exec jupyter jupyter nbconvert --to notebook --execute --inplace notebook.ipynb
-.venv/bin/jupyter nbconvert --to notebook --execute --inplace notebook.ipynb
+docker compose exec jupyter jupyter nbconvert --to notebook --execute --inplace --ExecutePreprocessor.timeout=600 notebook.ipynb
+.venv/bin/jupyter nbconvert --to notebook --execute --inplace --ExecutePreprocessor.timeout=600 notebook.ipynb
 ```
 
 Langfuse credentials come from the environment; they are never written into cells. The stack is self-hosted and seeds a project with `LANGFUSE_INIT_PROJECT_PUBLIC_KEY` / `LANGFUSE_INIT_PROJECT_SECRET_KEY`; the notebook reaches it at `http://langfuse:3000` from the jupyter container and at `http://localhost:3000` from the host:
