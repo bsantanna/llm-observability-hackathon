@@ -66,7 +66,9 @@ The timeout matters: reasoning models can take tens of seconds per call.
 ## Activities
 
 Each activity uses its own Langfuse session (`activity-<n>-<run-id>`) and tags.
-Open the trace URL printed by the notebook, then compare the variants.
+Open the trace URL printed by the notebook, then compare the variants. When the
+notebook runs inside the compose network, it rewrites `langfuse:3000` URLs to
+`http://localhost:3000` so they open from the host browser.
 
 | Activity | Trace names | What to look for |
 |---|---|---|
