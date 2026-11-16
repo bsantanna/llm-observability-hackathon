@@ -339,3 +339,133 @@ def run_tool_loop(question, variant):
         "trace_id": trace_id,
         "trace_url": record_trace(f"activity-4-{variant}", trace_id),
     }
+
+
+def show_rag_results(runs):
+    for run in runs:
+        doc = run["doc"]
+        print(f"\n{run['label']}")
+        print(f"  retrieved: {doc['id']} ({doc['tier']} fare) — {doc['title']}")
+        print(f"  query terms matched: {doc['score']}")
+        print(f"  answer: {run['answer']}")
+        print(f"  tokens: {run['input_tokens']} in / {run['output_tokens']} out · latency: {run['latency']:.1f}s")
+        print(f"  activity log: {run['trace_url']}")
+
+
+def show_format_results(runs):
+    for run in runs:
+        print(f"\n{run['label']}")
+        print(f"  answer: {run['answer']}")
+        print(f"  validation: {'PASS' if run['valid'] else 'FAIL'} — {run['reason']}")
+        parsed = run["parsed"]
+        if isinstance(parsed, dict):
+            fields = ", ".join(
+                f"{key}={parsed.get(key)!r}"
+                for key in ("origin", "destination", "travel_date", "passengers", "cabin")
+            )
+            print(f"  parsed fields: {fields}")
+        print(f"  tokens: {run['input_tokens']} in / {run['output_tokens']} out · latency: {run['latency']:.1f}s")
+        print(f"  activity log: {run['trace_url']}")
+
+
+def show_hallucination_broken(run):
+    print(f"\n{run['label']}")
+    print(f"  answer: {run['answer']}")
+    print(f"  retrieved policy: {run['doc']['text']}")
+    print(f"  activity log: {run['trace_url']}")
+
+
+def show_hallucination_fixed(broken, fixed):
+    print(f"\nretrieved policy: {broken['doc']['text']}")
+    for run in (broken, fixed):
+        print(f"\n{run['label']}")
+        print(f"  answer: {run['answer']}")
+        print(f"  activity log: {run['trace_url']}")
+
+
+def show_tool_broken(run):
+    print(f"\n{run['label']}")
+    print(f"  tool input: {run['tool_args']}")
+    print(f"  tool result: {run['tool_result']}")
+    print(f"  answer: {run['answer']}")
+    print(f"  activity log: {run['trace_url']}")
+
+
+def show_tool_fixed(broken, fixed):
+    for run in (broken, fixed):
+        print(f"\n{run['label']}")
+        print(f"  tool input: {run['tool_args']}")
+        print(f"  tool result: {run['tool_result']}")
+        print(f"  answer: {run['answer']}")
+        print(f"  activity log: {run['trace_url']}")
+
+
+def close_case(activity, runs):
+    print(f"\ncase {activity} closed — session {activity}-{RUN_ID}")
+    for run in runs:
+        print(f"{run['label']}: {run['trace_url']}")
+    langfuse.flush()
+    print("activity logs flushed to Langfuse")
+
+
+QUIZZES = {
+    "activity-1": {
+        "question": "In the filtered run, what filter does the retrieval step record?",
+        "options": [
+            "No filter — every policy was searched",
+            "tier=basic",
+            "tier=gold",
+            "topic=baggage",
+        ],
+        "answer": 2,
+    },
+    "activity-2": {
+        "question": "In the constrained run, which field is listed in the generation's system prompt?",
+        "options": [
+            "origin",
+            "booking_ref",
+            "loyalty_id",
+            "passenger_name",
+        ],
+        "answer": 1,
+    },
+    "activity-3": {
+        "question": "In the broken run, how many checked bags does the retrieved Gold policy allow?",
+        "options": ["one", "two", "three", "unlimited"],
+        "answer": 1,
+    },
+    "activity-4": {
+        "question": "In the broken run, what status message does the get_booking tool step record?",
+        "options": [
+            "KeyError: 'booking_id'",
+            "ValueError: booking not found",
+            "404 Not Found",
+            "No error — the lookup succeeded",
+        ],
+        "answer": 1,
+    },
+}
+
+
+def start_quiz(activity):
+    quiz = QUIZZES[activity]
+    print(f"optional final check — {activity}")
+    print(quiz["question"])
+    for number, option in enumerate(quiz["options"], start=1):
+        print(f"  {number}. {option}")
+    print("set answer to 1, 2, 3, or 4 in the next cell and run it once.")
+
+
+def submit_quiz(activity, answer):
+    quiz = QUIZZES[activity]
+    if not isinstance(answer, int) or isinstance(answer, bool) or answer not in (1, 2, 3, 4):
+        print("no answer selected yet — set answer to 1, 2, 3, or 4 and run this cell again.")
+        return 0
+    if answer == quiz["answer"]:
+        print(f"correct — 100 points for {activity} (maximum across four cases: 400).")
+        return 100
+    print(
+        f"not correct — 0 points for {activity}. "
+        f"Correct option: {quiz['answer']}. {quiz['options'][quiz['answer'] - 1]}"
+    )
+    return 0
