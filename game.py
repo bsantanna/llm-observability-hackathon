@@ -63,7 +63,7 @@ LEVELS = {
         "value": 200,
         "hints": [
             "Open the batch activity log and click the step for request 3.",
-            "The reason code names a field. Which field can the booking contract not hold for this request?",
+            "Compare what request 3 asks for with the values the instructions allow. Which field cannot hold it?",
         ],
         "hashes": ["af6f55e70d14f9fb980fab47b8d121bb5ccb9420ac6873afb4c4c54eba53aaf0"],
         "solved": "Some requests cannot fit the contract. The assistant must ask, not invent.",

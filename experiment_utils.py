@@ -122,35 +122,57 @@ def retrieve(query, tier=None, *, topic=None, top_k=1, active_only=True):
     ]
 
 
-def validate_booking_request(text):
-    match = re.search(r"\{.*\}", text, re.S)
+BOOKING_FIELDS = ("origin", "destination", "travel_date", "passengers", "cabin")
+STRUCTURED_INSTRUCTIONS = (
+    "Return ONLY a JSON object with exactly these keys: origin, destination, travel_date, "
+    "passengers, cabin. travel_date must be YYYY-MM-DD; passengers must be an integer; "
+    "cabin must be economy or premium. No prose and no markdown fences."
+)
+CLARIFICATION_EXPECTED = {2: "travel_date", 3: "cabin", 4: "origin"}
+
+
+def validate_booking_request(text, *, allow_clarification=False):
+    """Return (valid, parsed, reason, reason_code) for the booking system's contract."""
+    match = re.search(r"\{.*\}", text or "", re.S)
     if not match:
-        return False, None, "the answer is not a structured object"
+        return False, None, "the answer is not a structured object", "NOT_AN_OBJECT"
     try:
         parsed = json.loads(match.group(0))
     except json.JSONDecodeError:
-        return False, None, "the structured answer could not be read"
+        return False, None, "the structured answer could not be read", "UNREADABLE"
     if not isinstance(parsed, dict):
-        return False, parsed, "the answer must be a structured object"
-    required = {"origin", "destination", "travel_date", "passengers", "cabin"}
-    if set(parsed) != required:
+        return False, parsed, "the answer must be a structured object", "NOT_AN_OBJECT"
+    if allow_clarification and set(parsed) == {"needs_clarification"}:
+        if parsed["needs_clarification"] in BOOKING_FIELDS:
+            return True, parsed, "the assistant asks for a missing detail", "CLARIFICATION"
+        return False, parsed, "needs_clarification must name one booking field", "WRONG_FIELDS"
+    if set(parsed) != set(BOOKING_FIELDS):
         return False, parsed, (
             "the answer must contain exactly these fields: origin, destination, "
             "travel date, passengers, cabin"
-        )
+        ), "WRONG_FIELDS"
     if not isinstance(parsed["origin"], str) or not parsed["origin"]:
-        return False, parsed, "the origin is missing or empty"
+        return False, parsed, "the origin is missing or empty", "MISSING_ORIGIN"
     if not isinstance(parsed["destination"], str) or not parsed["destination"]:
-        return False, parsed, "the destination is missing or empty"
+        return False, parsed, "the destination is missing or empty", "MISSING_DESTINATION"
     if not isinstance(parsed["travel_date"], str) or not re.fullmatch(
         r"\d{4}-\d{2}-\d{2}", parsed["travel_date"]
     ):
-        return False, parsed, "the travel date must use YYYY-MM-DD"
+        return False, parsed, "the travel date must use YYYY-MM-DD", "BAD_DATE"
     if not isinstance(parsed["passengers"], int) or isinstance(parsed["passengers"], bool):
-        return False, parsed, "the number of passengers must be a whole number"
+        return False, parsed, "the number of passengers must be a whole number", "BAD_PASSENGERS"
     if parsed["cabin"] not in {"economy", "premium"}:
-        return False, parsed, "the cabin must be economy or premium"
-    return True, parsed, "all fields present and correct"
+        return False, parsed, "the cabin must be economy or premium", "BAD_CABIN"
+    return True, parsed, "all fields present and correct", "OK"
+
+
+def batch_passes(number, valid, parsed, reason_code):
+    """Level 3 rule: requests 2-4 must ask for the right missing detail, 1 and 5 must book."""
+    if not valid:
+        return False
+    if number in CLARIFICATION_EXPECTED:
+        return reason_code == "CLARIFICATION" and parsed["needs_clarification"] == CLARIFICATION_EXPECTED[number]
+    return reason_code == "OK"
 
 
 def activity_tags(activity, level, variant):
@@ -217,45 +239,88 @@ def run_rag(customer_message, tier, variant, *, level=1, query="checked bag allo
     }
 
 
+def _ask(system, request, name):
+    messages = [{"role": "system", "content": system}, {"role": "user", "content": request}]
+    started = time.time()
+    response = client.chat.completions.create(
+        model=MODEL, messages=messages, temperature=0, max_tokens=300, name=name,
+    )
+    return response, time.time() - started
+
+
 def run_format(variant):
-    trace_name = f"activity-2-output-{variant}"
+    trace_name = f"activity-2-output-l1-{variant}"
     label = "free text" if variant == "unconstrained" else "structured"
     system = (
         "Summarize the customer's booking request in one sentence."
         if variant == "unconstrained"
-        else "Return ONLY a JSON object with exactly these keys: origin, destination, travel_date, passengers, cabin. travel_date must be YYYY-MM-DD; passengers must be an integer; cabin must be economy or premium. No prose and no markdown fences."
+        else STRUCTURED_INSTRUCTIONS
     )
-    request = "Book 2 passengers from Lisbon to Madrid on 2026-12-01, economy."
     with langfuse.start_as_current_observation(name=trace_name, as_type="span") as root:
         with propagate_attributes(
             session_id=f"activity-2-{RUN_ID}",
-            tags=["activity-2", variant],
+            tags=activity_tags(2, 1, variant),
             trace_name=trace_name,
         ):
-            messages = [{"role": "system", "content": system}, {"role": "user", "content": request}]
-            started = time.time()
-            response = client.chat.completions.create(
-                model=MODEL, messages=messages, temperature=0, max_tokens=300,
-                name="activity-2-generation",
-            )
-            latency = time.time() - started
+            response, latency = _ask(system, REQUESTS[0], "activity-2-generation")
             answer = response.choices[0].message.content
-            valid, parsed, reason = validate_booking_request(answer)
+            valid, parsed, reason, reason_code = validate_booking_request(answer)
             trace_id = langfuse.get_current_trace_id()
-            root.update(output={"valid": valid, "reason": reason, "parsed": parsed})
+            root.update(output={"valid": valid, "reason": reason, "reason_code": reason_code, "parsed": parsed})
     usage = response.usage
     return {
         "variant": variant,
+        "level": 1,
         "label": label,
         "answer": answer,
         "valid": valid,
         "parsed": parsed,
         "reason": reason,
+        "reason_code": reason_code,
         "input_tokens": getattr(usage, "prompt_tokens", None),
         "output_tokens": getattr(usage, "completion_tokens", None),
         "latency": latency,
         "trace_id": trace_id,
-        "trace_url": record_trace(f"activity-2-{variant}", trace_id),
+        "trace_url": record_trace(f"activity-2-l1-{variant}", trace_id),
+    }
+
+
+def run_format_batch(instructions, level):
+    trace_name = f"activity-2-output-l{level}-batch"
+    allow_clarification = level >= 3
+    results = []
+    with langfuse.start_as_current_observation(
+        name=trace_name, as_type="span", input={"instructions": instructions}
+    ) as root:
+        with propagate_attributes(
+            session_id=f"activity-2-{RUN_ID}",
+            tags=activity_tags(2, level, "batch"),
+            trace_name=trace_name,
+        ):
+            for number, request in enumerate(REQUESTS, start=1):
+                with langfuse.start_as_current_observation(
+                    name=f"request-{number}", as_type="span", input={"request": request}
+                ) as step:
+                    response, _ = _ask(instructions, request, "activity-2-generation")
+                    answer = response.choices[0].message.content
+                    valid, parsed, reason, reason_code = validate_booking_request(
+                        answer, allow_clarification=allow_clarification
+                    )
+                    usable = batch_passes(number, valid, parsed, reason_code) if allow_clarification else valid
+                    step.update(output={"request": request, "valid": valid, "reason_code": reason_code,
+                                        "reason": reason, "parsed": parsed, "usable": usable})
+                results.append({"number": number, "request": request, "answer": answer, "usable": usable})
+            passed = sum(result["usable"] for result in results)
+            trace_id = langfuse.get_current_trace_id()
+            root.update(output={"usable": passed, "of": len(results)})
+    return {
+        "variant": "batch",
+        "level": level,
+        "label": f"five requests, {passed} usable",
+        "passed": passed,
+        "results": results,
+        "trace_id": trace_id,
+        "trace_url": record_trace(f"activity-2-l{level}-batch", trace_id),
     }
 
 
@@ -383,18 +448,20 @@ def show_rag_results(runs):
 
 def show_format_results(runs):
     for run in runs:
-        print(f"\n{run['label']}")
+        print(f"\nlevel {run['level']} · {run['label']}")
         print(f"  answer: {run['answer']}")
-        print(f"  validation: {'PASS' if run['valid'] else 'FAIL'} — {run['reason']}")
-        parsed = run["parsed"]
-        if isinstance(parsed, dict):
-            fields = ", ".join(
-                f"{key}={parsed.get(key)!r}"
-                for key in ("origin", "destination", "travel_date", "passengers", "cabin")
-            )
-            print(f"  parsed fields: {fields}")
+        print(f"  booking system: {'ACCEPTED' if run['valid'] else 'REJECTED'} — {run['reason']}")
         print(f"  tokens: {run['input_tokens']} in / {run['output_tokens']} out · latency: {run['latency']:.1f}s")
         print(f"  activity log: {run['trace_url']}")
+
+
+def show_batch_results(batch):
+    print(f"\nlevel {batch['level']} · {batch['passed']} of {len(batch['results'])} answers usable")
+    for result in batch["results"]:
+        print(f"  {'✅' if result['usable'] else '❌'} request {result['number']}: {result['request']}")
+    print(f"  activity log: {batch['trace_url']}")
+    if batch["level"] >= 3 and batch["passed"] == len(batch["results"]):
+        print("\n🏆 All five usable. Flag: five-for-five")
 
 
 def show_hallucination_broken(run):
