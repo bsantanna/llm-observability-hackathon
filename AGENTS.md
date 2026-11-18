@@ -54,23 +54,25 @@ Boundaries:
 - The deliverable is the notebooks participants clone and execute, plus the minimum support files they need (dependency manifest, sample data, docs). Do not add application code, services, or deployment infrastructure.
 - Langfuse is the observability backend. Do not build custom logging, dashboards, or telemetry plumbing that Langfuse already provides.
 - Keep the exercises runnable by a participant on a laptop, in one sitting, against the repository's compose stack, with keys they create in the local Langfuse project. Docker and Docker Compose are prerequisites: the stack provides the Langfuse backend (postgres, clickhouse, redis, minio, langfuse web/worker) and the jupyter service. No cluster and no external database beyond that stack; inference is hosted outside it.
-- Activity numbering, ordering, and the bugs planted in activities 3 and 4 are participant-facing contracts. Changing them changes the exercise; update the notebooks, README, and mentor notes in the same change.
+- Activity numbering, ordering, the three levels per activity, their planted defects, and their flags are participant-facing contracts. Changing them changes the game; update the notebooks, `game.py`, `make_claim_table.py`, README, and `MENTORS.md` in the same change.
+- The activities are played as a game: each level ends in a flag that participants find in the trace, verify with `check_flag`, and turn into a claim code for a scoreboard the game master runs outside the repository. Hints cost points. Flags MUST come from code-controlled trace data (document ids, filters, tool arguments, errors, step names, counts), never from model wording or token counts, so every team gets the same answer with any model.
+- Never name an employer, a real event, its date, or a meeting platform anywhere in the repository. The only story is the fictional Skyline Travel.
 - Prefer boring, explicit code over abstraction. Reusable activity logic lives in `experiment_utils.py`; notebooks call it and focus on the activity logs. A one-off display helper can stay inline.
 
 Agenda:
 
 | Activity | Topic | Duration | Participant outcome |
 |---|---|---|---|
-| 1 | Searching the right policy (RAG) | 35 min | Compare the answers and the policies found with and without the fare filter |
-| 2 | Getting a usable answer (output format) | 20 min | Compare which answer the next system can use |
-| 3 | Correcting a wrong answer (hallucination) | 20 min | Find the wrong answer in the activity log and correct the instructions |
-| 4 | Fixing a failed lookup (tool calling) | 40 min | Find the failed lookup in the activity log and fix the tool |
+| 1 | Searching the right policy (RAG) | 35 min | Find the wrong-fare policy, the missing second policy, and the cost of sending every policy |
+| 2 | Getting a usable answer (output format) | 20 min | Read the booking system's reason codes and write instructions that make five messy requests usable |
+| 3 | Correcting a wrong answer (hallucination) | 20 min | Trace wrong answers to hidden instructions or a retired policy, and write instructions that pass a rule check |
+| 4 | Fixing a failed lookup (tool calling) | 40 min | Fix a tool that fails, one that returns the wrong booking, and one that is slow |
 
 Supporting agenda items: kickoff and notebook clone (15 min), breaks and mid-point progress check (10 min each), conclusion and wrap-up (20 min), team demos (30 min), voting and winners announcement (20 min), open exploration (10 min).
 
 ## Repository State
 
-The repository contains the compose stack, dependency manifest, sample data, shared notebook setup, and four participant notebooks. Currently checked in: `LICENSE` (Apache-2.0), `AGENTS.md`, `docker-compose.yml`, `Dockerfile`, `requirements.txt`, `.env.example`, `.gitignore`, `README.md`, `data/`, `experiment_utils.py`, and the four `notebook-*.ipynb` files. `.venv/` is a local Python 3.12 virtual environment used for host-side work; it is scratch, not a deliverable, and MUST NOT be committed.
+The repository contains the compose stack, dependency manifest, sample data, shared notebook setup, and four participant notebooks. Currently checked in: `LICENSE` (Apache-2.0), `AGENTS.md`, `docker-compose.yml`, `Dockerfile`, `requirements.txt`, `.env.example`, `.gitignore`, `README.md`, `MENTORS.md`, `data/`, `experiment_utils.py`, `game.py`, `make_claim_table.py`, the four `notebook-*.ipynb` files, and the design and plan under `docs/superpowers/`. `.venv/` is a local Python 3.12 virtual environment used for host-side work; it is scratch, not a deliverable, and MUST NOT be committed.
 
 Layout:
 
@@ -80,6 +82,9 @@ notebook-2-output-format.ipynb  Activity 2: getting a usable answer
 notebook-3-hallucination.ipynb  Activity 3: correcting a wrong answer
 notebook-4-tool-calling.ipynb   Activity 4: fixing a failed lookup
 experiment_utils.py     shared setup and activity helpers
+game.py                 flags (salted hashes), hints, points, claim codes; no side effects
+make_claim_table.py     writes claim_codes.csv for the game master's scoring sheet
+MENTORS.md              game master guide: scoreboard, run of show, answers, rubric
 docker-compose.yml      self-hosted Langfuse stack plus the jupyter service
 Dockerfile              jupyter image build; installs requirements.txt
 requirements.txt        dependency manifest (single source of pinned deps)
@@ -153,7 +158,9 @@ Match the existing style once cells exist. Do not reformat untouched sections.
 - No secrets, absolute local paths, or machine-specific state in cells. Read configuration from the environment and fail loudly when a key is missing.
 - Model, client, and activity logic live in `experiment_utils.py`; notebooks call it and focus on the activity logs. The shared setup reads `LANGFUSE_*` and `OPENAI_*` from the environment and stops with a clear error when a value is missing.
 - Print or display only what the activity asks participants to compare: the answer, the trace id or URL, token counts, cost, latency. Avoid dumping raw JSON.
-- Planted defects in activities 3 and 4 MUST be visible in the trace, not hidden behind a comment that explains them. The participant finds the cause from observability data.
+- Planted defects in every level MUST be visible in the trace, not hidden behind a comment that explains them. The participant finds the cause from observability data.
+- Notebook output MUST NOT print a flag value; participants open the trace to find it. Every level ends with a `check_flag("<n>-<level>", ...)` cell and a commented `hint(...)`.
+- Answers live in plain text in `MENTORS.md` and `make_claim_table.py` by design: the game runs on trust.
 
 ## Langfuse Tracing Conventions
 
@@ -174,7 +181,8 @@ There is no test suite or linter. Verification is execution plus observation:
 - A change to prompts or model configuration is verified by comparing the before and after traces, not by reading the answer.
 - A change to setup, dependencies, or credentials handling is verified by running any notebook from a clean environment with only the documented variables set.
 - A change to the compose stack or jupyter image is verified with `docker compose config` and a full notebook execution inside the jupyter service.
-- Activities 3 and 4 are verified by confirming the defect reproduces before the fix and disappears after it, with the trace showing the difference.
+- Every level is verified by confirming its flag evidence appears in the trace; levels with a fix are verified by confirming the defect reproduces before the fix and disappears after it, with the trace showing the difference.
+- `make_claim_table.py` refuses to run when its answers do not match the hashes in `game.py`; run it after any flag change.
 - CI, if added, runs notebook execution only; it cannot assert on trace content unless it talks to a Langfuse project.
 
 ## Documentation
