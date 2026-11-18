@@ -324,47 +324,109 @@ def run_format_batch(instructions, level):
     }
 
 
-def run_hallucination(system_prompt, variant):
-    trace_name = f"activity-3-hallucination-{variant}"
-    label = "before fix" if variant == "broken" else "after fix"
+FAITHFUL_INSTRUCTIONS = (
+    "You are Skyline Travel's assistant. Answer using only the retrieved policy documents. "
+    "If they conflict with your assumptions, follow the documents."
+)
+RULE_QUESTIONS = [
+    ("bags", "How many checked bags are included in my Gold fare?", "checked bag allowance"),
+    ("second-bag", "What does a second checked bag cost on my Gold fare?", "second checked bag cost"),
+    ("cancellation", "Until when can I cancel my Gold ticket free of charge?", "cancelled free charge hours"),
+]
+
+
+def rule_passes(topic, answer):
+    text = (answer or "").lower()
+    if topic == "bags":
+        return bool(re.search(r"\b(one|1)\b", text)) and not re.search(r"\b(two|2)\b", text)
+    if topic == "second-bag":
+        return bool(re.search(r"\b60\b", text))
+    if topic == "cancellation":
+        return bool(re.search(r"\b24\b", text))
+    raise ValueError(f"unknown topic {topic}")
+
+
+def _policy_answer(system_prompt, question, query, active_only, step_name):
+    doc = retrieve(query, "gold", active_only=active_only)[0]
+    with langfuse.start_as_current_observation(
+        name="activity-3-retrieval",
+        as_type="retriever",
+        input={"query": query, "filter": {"tier": "gold", "active_only": active_only}},
+        output={"doc_id": doc["id"], "status": doc["status"], "effective_to": doc["effective_to"],
+                "tier": doc["tier"], "text": doc["text"]},
+    ):
+        pass
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": f"I'm a Gold member. {question}\n\nRetrieved policy:\n{doc['text']}"},
+    ]
+    started = time.time()
+    response = client.chat.completions.create(
+        model=MODEL, messages=messages, temperature=0, max_tokens=800, name=step_name,
+    )
+    return doc, response, time.time() - started
+
+
+def run_hallucination(system_prompt, variant, *, level=1, active_only=True):
+    if system_prompt is None:
+        system_prompt = INSTRUCTIONS["case-3-broken"]
+    trace_name = f"activity-3-hallucination-l{level}-{variant}"
     with langfuse.start_as_current_observation(name=trace_name, as_type="span") as root:
         with propagate_attributes(
             session_id=f"activity-3-{RUN_ID}",
-            tags=["activity-3", variant],
+            tags=activity_tags(3, level, variant),
             trace_name=trace_name,
         ):
-            doc = retrieve("checked bag allowance", "gold")[0]
-            with langfuse.start_as_current_observation(
-                name="activity-3-retrieval",
-                as_type="retriever",
-                input={"query": "checked bag allowance", "filter": {"tier": "gold"}},
-                output={"doc_id": doc["id"], "tier": doc["tier"], "text": doc["text"]},
-            ):
-                pass
-            messages = [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"I'm a Gold member. How many checked bags are included in my Gold fare?\n\nRetrieved policy:\n{doc['text']}"},
-            ]
-            started = time.time()
-            response = client.chat.completions.create(
-                model=MODEL, messages=messages, temperature=0, max_tokens=800,
-                name="activity-3-generation",
+            doc, response, latency = _policy_answer(
+                system_prompt, RULE_QUESTIONS[0][1], RULE_QUESTIONS[0][2], active_only, "activity-3-generation"
             )
-            latency = time.time() - started
             answer = response.choices[0].message.content
             trace_id = langfuse.get_current_trace_id()
-            root.update(output={"answer": answer, "doc_id": doc["id"]})
+            root.update(output={"answer": answer})
     usage = response.usage
     return {
         "variant": variant,
-        "label": label,
+        "level": level,
+        "label": variant,
         "answer": answer,
         "doc": doc,
         "input_tokens": getattr(usage, "prompt_tokens", None),
         "output_tokens": getattr(usage, "completion_tokens", None),
         "latency": latency,
         "trace_id": trace_id,
-        "trace_url": record_trace(f"activity-3-{variant}", trace_id),
+        "trace_url": record_trace(f"activity-3-l{level}-{variant}", trace_id),
+    }
+
+
+def run_rule_check(system_prompt):
+    trace_name = "activity-3-hallucination-l3-rules"
+    results = []
+    with langfuse.start_as_current_observation(name=trace_name, as_type="span") as root:
+        with propagate_attributes(
+            session_id=f"activity-3-{RUN_ID}",
+            tags=activity_tags(3, 3, "rules"),
+            trace_name=trace_name,
+        ):
+            for topic, question, query in RULE_QUESTIONS:
+                with langfuse.start_as_current_observation(
+                    name=f"rule-check-{topic}", as_type="span", input={"question": question}
+                ) as step:
+                    _, response, _ = _policy_answer(system_prompt, question, query, True, "activity-3-generation")
+                    answer = response.choices[0].message.content
+                    passed = rule_passes(topic, answer)
+                    step.update(output={"answer": answer, "matches_policy": passed})
+                results.append({"topic": topic, "question": question, "answer": answer, "passed": passed})
+            passed = sum(result["passed"] for result in results)
+            trace_id = langfuse.get_current_trace_id()
+            root.update(output={"matches_policy": passed, "of": len(results)})
+    return {
+        "variant": "rules",
+        "level": 3,
+        "label": f"rule check, {passed} of {len(results)} match the policy",
+        "passed": passed,
+        "results": results,
+        "trace_id": trace_id,
+        "trace_url": record_trace("activity-3-l3-rules", trace_id),
     }
 
 
@@ -464,19 +526,21 @@ def show_batch_results(batch):
         print("\n🏆 All five usable. Flag: five-for-five")
 
 
-def show_hallucination_broken(run):
-    print(f"\n{run['label']}")
-    print(f"  answer: {run['answer']}")
-    print(f"  retrieved policy: {run['doc']['text']}")
-    print(f"  activity log: {run['trace_url']}")
-
-
-def show_hallucination_fixed(broken, fixed):
-    print(f"\nretrieved policy: {broken['doc']['text']}")
-    for run in (broken, fixed):
-        print(f"\n{run['label']}")
+def show_hallucination_results(runs):
+    for run in runs:
+        print(f"\nlevel {run['level']} · {run['label']}")
         print(f"  answer: {run['answer']}")
         print(f"  activity log: {run['trace_url']}")
+
+
+def show_rule_results(check):
+    print(f"\nlevel {check['level']} · {check['passed']} of {len(check['results'])} answers match the policy")
+    for result in check["results"]:
+        print(f"  {'✅' if result['passed'] else '❌'} {result['question']}")
+        print(f"     {result['answer']}")
+    print(f"  activity log: {check['trace_url']}")
+    if check["passed"] == len(check["results"]):
+        print("\n🏆 Every answer matches the policy. Flag: rule-writer")
 
 
 def show_tool_broken(run):
