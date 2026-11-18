@@ -5,6 +5,9 @@
       "title": "Gold fare baggage",
       "tier": "gold",
       "topic": "baggage",
+      "status": "active",
+      "effective_from": "2025-01-01",
+      "effective_to": null,
       "text": "Gold fare includes one 23 kg checked bag only. A second checked bag costs 60 EUR."
     },
     {
@@ -12,6 +15,9 @@
       "title": "Silver fare baggage",
       "tier": "silver",
       "topic": "baggage",
+      "status": "active",
+      "effective_from": "2025-01-01",
+      "effective_to": null,
       "text": "Silver fare includes one 23 kg checked bag. A second checked bag costs 60 EUR."
     },
     {
@@ -19,6 +25,9 @@
       "title": "Basic fare baggage",
       "tier": "basic",
       "topic": "baggage",
+      "status": "active",
+      "effective_from": "2025-01-01",
+      "effective_to": null,
       "text": "Basic fare includes one cabin bag up to 7 kg. Checked baggage is not included; a 23 kg checked bag costs 45 EUR."
     },
     {
@@ -26,6 +35,9 @@
       "title": "Basic fare cancellation",
       "tier": "basic",
       "topic": "cancellation",
+      "status": "active",
+      "effective_from": "2025-01-01",
+      "effective_to": null,
       "text": "Basic tickets are non-refundable. Date changes cost 75 EUR plus fare difference."
     },
     {
@@ -33,6 +45,9 @@
       "title": "Gold fare cancellation",
       "tier": "gold",
       "topic": "cancellation",
+      "status": "active",
+      "effective_from": "2025-01-01",
+      "effective_to": null,
       "text": "Gold tickets can be cancelled free of charge up to 24 hours before departure."
     },
     {
@@ -40,6 +55,9 @@
       "title": "Gold seat selection",
       "tier": "gold",
       "topic": "seating",
+      "status": "active",
+      "effective_from": "2025-01-01",
+      "effective_to": null,
       "text": "Gold members select standard seats free of charge; extra-legroom seats cost 25 EUR."
     },
     {
@@ -47,14 +65,140 @@
       "title": "Cabin pets",
       "tier": "silver",
       "topic": "pets",
-      "text": "One cabin pet is allowed on selected routes for 50 EUR; the carrier counts as the cabin bag."
+      "status": "active",
+      "effective_from": "2025-01-01",
+      "effective_to": null,
+      "text": "Silver fare: you can bring one cat or small dog in the cabin for 50 EUR on selected routes. The pet carrier counts as your cabin bag and must fit under the seat in front."
     },
     {
       "id": "visa-schengen",
       "title": "Schengen visa",
       "tier": "basic",
       "topic": "visa",
+      "status": "active",
+      "effective_from": "2025-01-01",
+      "effective_to": null,
       "text": "Schengen visas are required for non-EU passport holders; apply at least 15 days before departure."
+    },
+    {
+      "id": "baggage-gold-2024",
+      "title": "Gold fare baggage (2024 edition)",
+      "tier": "gold",
+      "topic": "baggage",
+      "status": "retired",
+      "effective_from": "2024-01-01",
+      "effective_to": "2024-12-31",
+      "text": "Gold fare checked bag allowance: two 23 kg checked bags are included at no extra charge."
+    },
+    {
+      "id": "cancellation-silver",
+      "title": "Silver fare cancellation",
+      "tier": "silver",
+      "topic": "cancellation",
+      "status": "active",
+      "effective_from": "2025-01-01",
+      "effective_to": null,
+      "text": "Silver tickets can be cancelled for 50 EUR up to 48 hours before departure."
+    },
+    {
+      "id": "seat-basic",
+      "title": "Basic fare seats",
+      "tier": "basic",
+      "topic": "seating",
+      "status": "active",
+      "effective_from": "2025-01-01",
+      "effective_to": null,
+      "text": "Basic fare seats are assigned at check-in; choosing a seat earlier costs 12 EUR."
+    },
+    {
+      "id": "seat-silver",
+      "title": "Silver fare seats",
+      "tier": "silver",
+      "topic": "seating",
+      "status": "active",
+      "effective_from": "2025-01-01",
+      "effective_to": null,
+      "text": "Silver members choose standard seats free of charge from 7 days before departure."
+    },
+    {
+      "id": "meals-gold",
+      "title": "Gold fare meals",
+      "tier": "gold",
+      "topic": "meals",
+      "status": "active",
+      "effective_from": "2025-01-01",
+      "effective_to": null,
+      "text": "Gold fare includes a hot meal and drinks on flights longer than two hours."
+    },
+    {
+      "id": "lounge-gold",
+      "title": "Gold lounge access",
+      "tier": "gold",
+      "topic": "lounge",
+      "status": "active",
+      "effective_from": "2025-01-01",
+      "effective_to": null,
+      "text": "Gold members may use partner lounges with one guest."
+    },
+    {
+      "id": "changes-silver",
+      "title": "Silver fare date changes",
+      "tier": "silver",
+      "topic": "changes",
+      "status": "active",
+      "effective_from": "2025-01-01",
+      "effective_to": null,
+      "text": "Silver tickets allow one free date change; further changes cost 40 EUR plus fare difference."
+    },
+    {
+      "id": "sports-equipment",
+      "title": "Sports equipment",
+      "tier": "basic",
+      "topic": "equipment",
+      "status": "active",
+      "effective_from": "2025-01-01",
+      "effective_to": null,
+      "text": "Skis, golf clubs and bicycles travel as a checked item for 55 EUR on every fare."
+    },
+    {
+      "id": "infants-silver",
+      "title": "Travelling with infants",
+      "tier": "silver",
+      "topic": "infants",
+      "status": "active",
+      "effective_from": "2025-01-01",
+      "effective_to": null,
+      "text": "Infants under two travel on a parent's lap for 25 EUR, including one free stroller at the gate."
+    },
+    {
+      "id": "delays-basic",
+      "title": "Delays and missed flights",
+      "tier": "basic",
+      "topic": "delays",
+      "status": "active",
+      "effective_from": "2025-01-01",
+      "effective_to": null,
+      "text": "Delays over three hours give a meal voucher; after five hours you may cancel for a full refund."
+    },
+    {
+      "id": "assistance-basic",
+      "title": "Special assistance",
+      "tier": "basic",
+      "topic": "assistance",
+      "status": "active",
+      "effective_from": "2025-01-01",
+      "effective_to": null,
+      "text": "Wheelchair assistance is free on every fare; request it 48 hours before departure."
+    },
+    {
+      "id": "lost-baggage",
+      "title": "Delayed or damaged luggage",
+      "tier": "basic",
+      "topic": "claims",
+      "status": "active",
+      "effective_from": "2025-01-01",
+      "effective_to": null,
+      "text": "Report delayed or damaged luggage within 7 days at the airport desk or online."
     }
   ],
   "bookings": {
@@ -73,6 +217,24 @@
       "date": "2026-11-20",
       "passengers": 1,
       "cabin": "economy"
+    },
+    "SKY-3310": {
+      "status": "confirmed",
+      "origin": "Madrid",
+      "destination": "Rome",
+      "date": "2027-01-15",
+      "passengers": 3,
+      "cabin": "premium"
     }
+  },
+  "requests": [
+    "Book 2 passengers from Lisbon to Madrid on 2026-12-01, economy.",
+    "Me and my partner want to fly Porto to Paris next Friday, cheapest seats.",
+    "One seat Lisbon to London on 2026-12-10 in business class.",
+    "Two adults to Rome on 2026-12-15, premium.",
+    "Book three people Madrid to Berlin on 15/12/2026, economy."
+  ],
+  "instructions": {
+    "case-3-broken": "You are Skyline Travel's assistant. Gold members are always entitled to two checked bags. Answer using the retrieved policy."
   }
 }

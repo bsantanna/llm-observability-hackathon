@@ -15,6 +15,8 @@ from pathlib import Path
 from langfuse import Langfuse, propagate_attributes
 from langfuse.openai import OpenAI
 
+from game import check_flag, current_team, hint, set_team
+
 REQUIRED = [
     "LANGFUSE_PUBLIC_KEY",
     "LANGFUSE_SECRET_KEY",
@@ -52,6 +54,8 @@ with _CORPUS_PATH.open(encoding="utf-8") as _corpus_file:
     CORPUS = json.load(_corpus_file)
 
 BOOKINGS = CORPUS["bookings"]
+REQUESTS = CORPUS["requests"]
+INSTRUCTIONS = CORPUS["instructions"]
 TOOL_SCHEMA = {
     "type": "function",
     "function": {
@@ -89,24 +93,33 @@ def print_summary(activity):
         print(f"{name}: {url}")
 
 
-def retrieve(query, tier=None):
+def retrieve(query, tier=None, *, topic=None, top_k=1, active_only=True):
     documents = CORPUS["documents"]
     if tier is not None:
         documents = [doc for doc in documents if doc["tier"] == tier]
-    terms = query.lower().split()
+    if topic is not None:
+        documents = [doc for doc in documents if doc["topic"] == topic]
+    if active_only:
+        documents = [doc for doc in documents if doc["status"] == "active"]
+    terms = re.findall(r"[a-z0-9]+", query.lower())
     ranked = sorted(
         ((sum(term in doc["text"].lower() for term in terms), index, doc)
          for index, doc in enumerate(documents)),
         key=lambda row: (-row[0], row[1]),
     )
-    score, _, doc = ranked[0]
-    return {
-        "id": doc["id"],
-        "tier": doc["tier"],
-        "title": doc["title"],
-        "text": doc["text"],
-        "score": score,
-    }
+    return [
+        {
+            "id": doc["id"],
+            "tier": doc["tier"],
+            "topic": doc["topic"],
+            "status": doc["status"],
+            "effective_to": doc["effective_to"],
+            "title": doc["title"],
+            "text": doc["text"],
+            "score": score,
+        }
+        for score, _, doc in ranked[:top_k]
+    ]
 
 
 def validate_booking_request(text):
@@ -149,7 +162,7 @@ def run_rag(customer_message, tier, variant):
             tags=["activity-1", variant],
             trace_name=trace_name,
         ):
-            doc = retrieve("checked bag allowance", tier)
+            doc = retrieve("checked bag allowance", tier)[0]
             with langfuse.start_as_current_observation(
                 name="activity-1-retrieval",
                 as_type="retriever",
@@ -236,7 +249,7 @@ def run_hallucination(system_prompt, variant):
             tags=["activity-3", variant],
             trace_name=trace_name,
         ):
-            doc = retrieve("checked bag allowance", "gold")
+            doc = retrieve("checked bag allowance", "gold")[0]
             with langfuse.start_as_current_observation(
                 name="activity-3-retrieval",
                 as_type="retriever",
