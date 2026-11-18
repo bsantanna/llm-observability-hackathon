@@ -24,7 +24,7 @@ ANSWERS = {
     "3-2": ["baggage-gold-2024"],
     "3-3": ["rule-writer"],
     "4-1": ["booking_id", "booking-id"],
-    "4-2": ["sky-1042"],
+    "4-2": ["sky-3310"],
     "4-3": ["partner-system-check-3"],
 }
 
@@ -40,24 +40,34 @@ def verify_answers():
     return problems
 
 
+def duplicate_codes(rows):
+    seen, duplicates = set(), set()
+    for row in rows:
+        code = row[3]
+        (duplicates if code in seen else seen).add(code)
+    return sorted(duplicates)
+
+
 def main(teams):
     problems = verify_answers()
     if problems:
         sys.exit(f"Answers do not match game.py for: {', '.join(problems)}")
     if not teams:
         sys.exit(__doc__)
-    rows = 0
+    rows = []
+    for team in dict.fromkeys(normalize(team) for team in teams):
+        for level, answers in ANSWERS.items():
+            max_hints = min(MAX_HINTS, len(LEVELS[level]["hints"]))
+            for used in range(max_hints + 1):
+                rows.append([team, level, used, claim_code(team, level, answers[0], used), points(level, used)])
+    duplicates = duplicate_codes(rows)
+    if duplicates:
+        sys.exit(f"Claim codes collide ({', '.join(duplicates)}); rename one of the teams and run again.")
     with open("claim_codes.csv", "w", newline="", encoding="utf-8") as out:
         writer = csv.writer(out)
         writer.writerow(["team", "level", "hints_used", "claim_code", "points"])
-        for team in teams:
-            team = normalize(team)
-            for level, answers in ANSWERS.items():
-                max_hints = min(MAX_HINTS, len(LEVELS[level]["hints"]))
-                for used in range(max_hints + 1):
-                    writer.writerow([team, level, used, claim_code(team, level, answers[0], used), points(level, used)])
-                    rows += 1
-    print(f"wrote claim_codes.csv: {rows} rows for {len(teams)} team(s)")
+        writer.writerows(rows)
+    print(f"wrote claim_codes.csv: {len(rows)} rows for {len(teams)} team(s)")
 
 
 if __name__ == "__main__":

@@ -37,7 +37,7 @@
 | 3-2 | `baggage-gold-2024` | | L2 retrieval step output (`status: retired`, `effective_to`) |
 | 3-3 | `rule-writer` | | printed by the harness only when all three L3 checks pass |
 | 4-1 | `booking_id` | `booking-id` | L1 `get_booking` step `status_message` |
-| 4-2 | `sky-1042` | | L2 `get_booking` step output `booking_ref` |
+| 4-2 | `sky-3310` | | L2 `get_booking` step output `booking_ref` (fallback to the first booking; changed from `sky-1042` after final review) |
 | 4-3 | `partner-system-check-3` | | L3 child steps named `partner-system-check`, 3 per lookup |
 
 ## Review Focus

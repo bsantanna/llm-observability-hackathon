@@ -72,7 +72,7 @@ LEVELS = {
         "value": 300,
         "hints": [
             "A request with missing or unsupported details may answer with needs_clarification and the field name.",
-            "Tell the assistant how to turn relative or local dates into YYYY-MM-DD, and which cabins exist.",
+            "Tell the assistant to convert exact dates such as 15/12/2026 to YYYY-MM-DD, and to ask when a date is relative or a cabin is not offered.",
         ],
         "hashes": ["1e2108919c29bb3298cf720aa6eba10ddcd424fbc3867f9b3a4f10e7d5d9b34f"],
         "solved": "Five out of five usable answers. The booking system is happy again.",
@@ -99,7 +99,7 @@ LEVELS = {
         "value": 300,
         "hints": [
             "Open the rule-check activity log: each question has its own step. Which one fails?",
-            "Tell the assistant to quote numbers exactly as the policy states them.",
+            "The search now hands over current and retired policies, each with its status. Tell the assistant which ones to trust.",
         ],
         "hashes": ["0bcee66b23de396fd16b2d916331256770ac1b647987bc94d12bf0f10d8dc761"],
         "solved": "Every answer matches the policy. You wrote the rule.",
@@ -119,7 +119,7 @@ LEVELS = {
             "There is no error this time. Compare the booking the customer asked for with the one the tool returned.",
             "Read the booking reference in the lookup step's result.",
         ],
-        "hashes": ["cae66f3fd524fb55d383ac95815255bde458de07356a51ca50d2f17195486642"],
+        "hashes": ["e47d2f55ce2ac8c29c8c3bfceb1fc1654d6bd697c7686986fd19c4135a37f378"],
         "solved": "A silent fallback told a customer about someone else's trip. Fail loudly instead.",
     },
     "4-3": {
@@ -146,7 +146,7 @@ def flag_hash(flag):
 
 def _code(team, level, canonical_hash, hints_used):
     raw = f"{SALT}|{normalize(team)}|{level}|{canonical_hash}|{hints_used}"
-    return f"{level}-{hashlib.sha256(raw.encode('utf-8')).hexdigest()[:4].upper()}"
+    return f"{level}-{hashlib.sha256(raw.encode('utf-8')).hexdigest()[:6].upper()}"
 
 
 def claim_code(team, level, flag, hints_used):

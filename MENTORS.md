@@ -19,7 +19,7 @@ this file too. The answers are plain text by design, so the game runs on trust.
 
    This writes `claim_codes.csv` (git-ignored). Each team gets 37 rows: 12 levels × 0–2
    hints, plus the bonus. The script refuses to run if an answer below does not match
-   `game.py`.
+   `game.py`, or if two teams' codes would collide (then rename a team).
 4. **Build the form and scoring sheet** (next section) and test it with two codes from the CSV.
 5. **Share with teams before the start:** the repository, the README, their team name, and
    the form link. Keep the form link out of the repository.
@@ -42,8 +42,8 @@ functions except `QUERY`, so use a PivotTable there):
 | B | team | `=IFERROR(XLOOKUP(A2, key!D:D, key!A:A), "UNKNOWN")` (fill down) |
 | C | level | `=LEFT(A2, 3)` (fill down) |
 | D | points | `=IFERROR(XLOOKUP(A2, key!D:D, key!E:E), 0)` (fill down) |
-| E | first claimed | `=MINIFS(responses!A:A, responses!C:C, A2)` (fill down) |
-| F | boosted | `=IF(AND(C2="3-3", E2>=$I$1, E2<=$I$2), D2*2, D2)` (fill down) |
+| E | first claimed | `=MIN(FILTER(responses!A2:A, UPPER(TRIM(responses!C2:C))=A2))` (fill down) |
+| F | boosted | `=IF(AND($I$1<>"", C2="3-3", E2>=$I$1, E2<=$I$2), D2*2, D2)` (fill down) |
 | G | counted | `=IF(F2=MAXIFS(F:F, B:B, B2, C:C, C2), F2, 0)` (fill down) |
 
 Put the double-points window (optional twist) in `I1` (start) and `I2` (end) as date-times;
@@ -100,7 +100,7 @@ Flags are not case-sensitive, and spaces count as dashes. Hints are what `hint()
 |---|---|---|---|---|---|
 | 2-1 | `not_an_object` | `activity-2-output-l1-unconstrained` → trace output `reason_code` | Open the free-text run and look at what the trace stores as its result, not the answer itself. | The result has a reason code. Submit it exactly as written. | Ask for an exact format. |
 | 2-2 | `cabin` | `activity-2-output-l2-batch` → `request-3`: the customer wants *business* class; the instructions allow only economy or premium. Usually `BAD_CABIN`, but a model may quietly map it to premium and pass. Ask the team which is worse. | Open the batch activity log and click the step for request 3. | Compare what request 3 asks for with the values the instructions allow. Which field cannot hold it? | Some requests do not fit the contract; the assistant must ask, not invent. |
-| 2-3 | `five-for-five` | Printed by the notebook when all five Level 3 answers are usable: requests 1 and 5 become valid bookings (5 needs `2026-12-15`), request 2 → `{"needs_clarification": "travel_date"}`, 3 → `"cabin"`, 4 → `"origin"` | A request with missing or unsupported details may answer with needs_clarification and the field name. | Tell the assistant how to turn relative or local dates into YYYY-MM-DD, and which cabins exist. | See the example instructions below. |
+| 2-3 | `five-for-five` | Printed by the notebook when all five Level 3 answers are usable: requests 1 and 5 become valid bookings (5 needs `2026-12-15`), request 2 → `{"needs_clarification": "travel_date"}`, 3 → `"cabin"`, 4 → `"origin"` | A request with missing or unsupported details may answer with needs_clarification and the field name. | Tell the assistant to convert exact dates such as 15/12/2026 to YYYY-MM-DD, and to ask when a date is relative or a cabin is not offered. | See the example instructions below. |
 
 Example Level 3 instructions that usually pass (models vary, so let teams iterate):
 
@@ -120,14 +120,14 @@ economy or premium, "origin" or "destination" when missing.
 |---|---|---|---|---|---|
 | 3-1 | `two` (or `2`) | `activity-3-hallucination-l1-broken` → `activity-3-generation` → system prompt: *"Gold members are always entitled to two checked bags"*; the search step's policy says one | The notebook does not show the instructions. The activity log does: open the answer step. | Compare the instructions with the retrieved policy. What number do the instructions promise? | Instructions that defer to the documents. |
 | 3-2 | `baggage-gold-2024` | `activity-3-hallucination-l2-stale` → `activity-3-retrieval` → output `doc_id`, `status: retired`, `effective_to: 2024-12-31` | The assistant quoted the policy faithfully. Is the policy itself still valid? | Read the status and end date of the policy in the search step. | `active_only=True`: the error was in the data, not the model. |
-| 3-3 | `rule-writer` | Printed by the notebook when the three `rule-check-*` steps all match: one checked bag, 60 EUR for a second bag, 24 hours for free cancellation | Open the rule-check activity log: each question has its own step. Which one fails? | Tell the assistant to quote numbers exactly as the policy states them. | Faithful instructions plus exact numbers. |
+| 3-3 | `rule-writer` | Printed by the notebook when the three `rule-check-*` steps all match: one checked bag, 60 EUR for a second bag, 24 hours for free cancellation. Each search hands over the top two policies, current and retired, with their status, so a plain prompt usually fails on the bag questions | Open the rule-check activity log: each question has its own step. Which one fails? | The search now hands over current and retired policies, each with its status. Tell the assistant which ones to trust. | Instructions that follow the documents *and* ignore retired policies, for example: "Answer only from the retrieved policies whose status is active; ignore retired ones; quote numbers exactly." |
 
 ### Case 4 — Fixing a failed lookup
 
 | Level | Flag | Where it is | Hint 1 | Hint 2 | The fix / lesson |
 |---|---|---|---|---|---|
 | 4-1 | `booking_id` | `activity-4-tool-call-l1-broken` → `get_booking` step, level ERROR, status message `KeyError: 'booking_id'`; its input shows `booking_ref` | Open the lookup step marked as an error in the activity log. | Compare the detail the assistant sent with the detail named in the error. | `details["booking_ref"]`. |
-| 4-2 | `sky-1042` | `activity-4-tool-call-l2-forgiving` → `get_booking` output `booking_ref: SKY-1042` although the customer asked about SKY-2087 (the tool strips the dash, misses, and falls back to the first booking) | There is no error this time. Compare the booking the customer asked for with the one the tool returned. | Read the booking reference in the lookup step's result. | Look up the exact reference, and return a clear "not found" instead of a fallback. |
+| 4-2 | `sky-3310` | `activity-4-tool-call-l2-forgiving` → `get_booking` output `booking_ref: SKY-3310` although the customer asked about SKY-2087 (the tool strips the dash, misses, and falls back to the first booking in the system) | There is no error this time. Compare the booking the customer asked for with the one the tool returned. | Read the booking reference in the lookup step's result. | Look up the exact reference, and return a clear "not found" instead of a fallback. |
 | 4-3 | `partner-system-check-3` | `activity-4-tool-call-l3-slow` → `get_booking` contains three `partner-system-check` steps of ~1.5 s each; the cache key includes the current time, so it never hits | Sort the steps of the lookup by time. Which one is slow, and how often does it run? | Submit the slow step's name and the number of times it ran per lookup, joined by a dash. | `return booking_ref` in `cache_key`: one check, fast again. |
 
 ## Unblocking without spoiling
@@ -137,7 +137,8 @@ economy or premium, "origin" or "destination" when missing.
 - Point at the *step*, never at the *field*: "open the search step" is fine, "read
   `doc_id`" gives the answer away. If they need the field, that's what `hint()` is for.
 - A flag is rejected but looks right: check for extra words. A flag is one id, word or
-  number.
+  number. For 4-3, `get_booking-1` is a common wrong answer: the slow step is *inside*
+  `get_booking`.
 - Model-dependent levels (2-3, 3-3) can take a few tries. Encourage reading the failing
   step rather than rewriting everything.
 

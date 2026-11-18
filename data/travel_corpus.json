@@ -202,6 +202,14 @@
     }
   ],
   "bookings": {
+    "SKY-3310": {
+      "status": "confirmed",
+      "origin": "Madrid",
+      "destination": "Rome",
+      "date": "2027-01-15",
+      "passengers": 3,
+      "cabin": "premium"
+    },
     "SKY-1042": {
       "status": "confirmed",
       "origin": "Lisbon",
@@ -217,14 +225,6 @@
       "date": "2026-11-20",
       "passengers": 1,
       "cabin": "economy"
-    },
-    "SKY-3310": {
-      "status": "confirmed",
-      "origin": "Madrid",
-      "destination": "Rome",
-      "date": "2027-01-15",
-      "passengers": 3,
-      "cabin": "premium"
     }
   },
   "requests": [
