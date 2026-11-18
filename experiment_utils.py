@@ -217,7 +217,7 @@ def run_rag(customer_message, tier, variant, *, level=1, query="checked bag allo
             ]
             started = time.time()
             response = client.chat.completions.create(
-                model=MODEL, messages=messages, temperature=0, max_tokens=300,
+                model=MODEL, messages=messages, temperature=0, max_tokens=800,
                 name="activity-1-generation",
             )
             latency = time.time() - started
@@ -338,7 +338,10 @@ RULE_QUESTIONS = [
 def rule_passes(topic, answer):
     text = (answer or "").lower()
     if topic == "bags":
-        return bool(re.search(r"\b(one|1)\b", text)) and not re.search(r"\b(two|2)\b", text)
+        mentions_one = re.search(r"\b(one|1)\b", text)
+        mentions_two = re.search(r"\b(two|2)\b", text)
+        dismissed = re.search(r"\b(retired|no longer|outdated|older|previous|old)\b", text)
+        return bool(mentions_one) and (not mentions_two or bool(dismissed))
     if topic == "second-bag":
         return bool(re.search(r"\b60\b", text))
     if topic == "cancellation":
@@ -410,7 +413,9 @@ def run_hallucination(system_prompt, variant, *, level=1, active_only=True):
 
 
 def run_rule_check(system_prompt):
+    """The base instructions from Level 1 are always sent first; the team's instructions follow."""
     trace_name = "activity-3-hallucination-l3-rules"
+    instructions = INSTRUCTIONS["case-3-broken"] + "\n\n" + system_prompt
     results = []
     with langfuse.start_as_current_observation(name=trace_name, as_type="span") as root:
         with propagate_attributes(
@@ -423,7 +428,7 @@ def run_rule_check(system_prompt):
                     name=f"rule-check-{topic}", as_type="span", input={"question": question}
                 ) as step:
                     _, response, _ = _policy_answer(
-                        system_prompt, question, query, False, "activity-3-generation", top_k=2, show_status=True
+                        instructions, question, query, False, "activity-3-generation", top_k=2, show_status=True
                     )
                     answer = response.choices[0].message.content
                     passed = rule_passes(topic, answer)
@@ -496,7 +501,7 @@ def run_tool_loop(question, variant, *, level=1, lookup):
             trace_name=trace_name,
         ):
             messages = [
-                {"role": "system", "content": "You are Skyline Travel's assistant. Use the get_booking tool to look up bookings. If a tool call fails, report the failure to the user instead of retrying."},
+                {"role": "system", "content": "You are Skyline Travel's assistant. Use the get_booking tool to look up bookings. If a tool call fails, apologise and ask the customer to try again later, without retrying and without showing technical details or error messages. Do not repeat booking references back to the customer; describe the trip instead."},
                 {"role": "user", "content": question},
             ]
             first = client.chat.completions.create(

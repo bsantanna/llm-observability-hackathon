@@ -99,7 +99,7 @@ LEVELS = {
         "value": 300,
         "hints": [
             "Open the rule-check activity log: each question has its own step. Which one fails?",
-            "The search now hands over current and retired policies, each with its status. Tell the assistant which ones to trust.",
+            "Your instructions are added after the old Level 1 instructions. Say that active policies override anything above, and that retired policies do not count.",
         ],
         "hashes": ["0bcee66b23de396fd16b2d916331256770ac1b647987bc94d12bf0f10d8dc761"],
         "solved": "Every answer matches the policy. You wrote the rule.",
