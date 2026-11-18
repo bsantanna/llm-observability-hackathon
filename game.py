@@ -161,10 +161,13 @@ def points(level, hints_used):
 def set_team(name):
     global _team
     team = normalize(name)
-    if not team or team == PLACEHOLDER_TEAM:
+    if not team:
         raise ValueError("Set TEAM to your team name in the first cell.")
     _team = team
-    print(f"Playing as team: {team}")
+    if team == PLACEHOLDER_TEAM:
+        print("⚠️  TEAM is still 'your-team-name'. Claim codes will not score: change it and rerun this cell.")
+    else:
+        print(f"Playing as team: {team}")
     return team
 
 

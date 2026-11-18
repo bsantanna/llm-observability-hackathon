@@ -153,27 +153,45 @@ def validate_booking_request(text):
     return True, parsed, "all fields present and correct"
 
 
-def run_rag(customer_message, tier, variant):
-    trace_name = f"activity-1-rag-{variant}"
-    label = "all policies" if tier is None else f"{tier.title()} fare only"
+def activity_tags(activity, level, variant):
+    tags = [f"activity-{activity}", f"l{level}", variant]
+    if current_team():
+        tags.append(f"team-{current_team()}")
+    return tags
+
+
+def run_rag(customer_message, tier, variant, *, level=1, query="checked bag allowance",
+            topic=None, top_k=1, send_all=False):
+    trace_name = f"activity-1-rag-l{level}-{variant}"
+    if send_all:
+        label = "every policy sent"
+        docs = retrieve(query, top_k=len(CORPUS["documents"]), active_only=False)
+        search_filter = None
+    else:
+        label = "all policies" if tier is None else f"{tier.title()} fare only"
+        if top_k > 1:
+            label += f", top {top_k} results"
+        docs = retrieve(query, tier, topic=topic, top_k=top_k)
+        search_filter = {key: value for key, value in (("tier", tier), ("topic", topic)) if value} or None
     with langfuse.start_as_current_observation(name=trace_name, as_type="span") as root:
         with propagate_attributes(
             session_id=f"activity-1-{RUN_ID}",
-            tags=["activity-1", variant],
+            tags=activity_tags(1, level, variant),
             trace_name=trace_name,
         ):
-            doc = retrieve("checked bag allowance", tier)[0]
             with langfuse.start_as_current_observation(
                 name="activity-1-retrieval",
                 as_type="retriever",
-                input={"query": "checked bag allowance",
-                       "filter": None if tier is None else {"tier": tier}},
-                output={"doc_id": doc["id"], "tier": doc["tier"], "text": doc["text"]},
+                input={"query": query, "filter": search_filter, "top_k": len(docs) if send_all else top_k},
+                output={"count": len(docs),
+                        "docs": [{key: doc[key] for key in ("id", "tier", "topic", "text")} for doc in docs]},
+                metadata={"detective_note": "golden-suitcase"},
             ):
                 pass
+            policies = "\n".join(f"- {doc['text']}" for doc in docs)
             messages = [
-                {"role": "system", "content": "Answer using the retrieved policy document."},
-                {"role": "user", "content": f"{customer_message}\n\nRetrieved policy:\n{doc['text']}"},
+                {"role": "system", "content": "Answer using the retrieved policy documents."},
+                {"role": "user", "content": f"{customer_message}\n\nRetrieved policies:\n{policies}"},
             ]
             started = time.time()
             response = client.chat.completions.create(
@@ -183,18 +201,19 @@ def run_rag(customer_message, tier, variant):
             latency = time.time() - started
             answer = response.choices[0].message.content
             trace_id = langfuse.get_current_trace_id()
-            root.update(output={"answer": answer, "doc_id": doc["id"]})
+            root.update(output={"answer": answer})
     usage = response.usage
     return {
         "variant": variant,
+        "level": level,
         "label": label,
         "answer": answer,
-        "doc": doc,
+        "docs": docs,
         "input_tokens": getattr(usage, "prompt_tokens", None),
         "output_tokens": getattr(usage, "completion_tokens", None),
         "latency": latency,
         "trace_id": trace_id,
-        "trace_url": record_trace(f"activity-1-{variant}", trace_id),
+        "trace_url": record_trace(f"activity-1-l{level}-{variant}", trace_id),
     }
 
 
@@ -356,10 +375,7 @@ def run_tool_loop(question, variant):
 
 def show_rag_results(runs):
     for run in runs:
-        doc = run["doc"]
-        print(f"\n{run['label']}")
-        print(f"  retrieved: {doc['id']} ({doc['tier']} fare) — {doc['title']}")
-        print(f"  query terms matched: {doc['score']}")
+        print(f"\nlevel {run['level']} · {run['label']}")
         print(f"  answer: {run['answer']}")
         print(f"  tokens: {run['input_tokens']} in / {run['output_tokens']} out · latency: {run['latency']:.1f}s")
         print(f"  activity log: {run['trace_url']}")
@@ -416,7 +432,7 @@ def show_tool_fixed(broken, fixed):
 def close_case(activity, runs):
     print(f"\ncase {activity} closed — session {activity}-{RUN_ID}")
     for run in runs:
-        print(f"{run['label']}: {run['trace_url']}")
+        print(f"level {run.get('level', 1)} · {run['label']}: {run['trace_url']}")
     langfuse.flush()
     print("activity logs flushed to Langfuse")
 
