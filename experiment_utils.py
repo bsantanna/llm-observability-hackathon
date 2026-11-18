@@ -430,27 +430,56 @@ def run_rule_check(system_prompt):
     }
 
 
-def get_booking_broken(**kwargs):
+def get_booking_l1(**kwargs):
     ref = kwargs["booking_id"]
     return BOOKINGS[ref]
 
 
-def get_booking_fixed(**kwargs):
-    ref = kwargs["booking_ref"]
-    return BOOKINGS[ref]
+def get_booking_l2(**kwargs):
+    """Accepts any spelling of the reference and never fails."""
+    key = kwargs["booking_ref"].upper().replace("-", "")
+    booking = BOOKINGS.get(key)
+    if booking is None:
+        key, booking = next(iter(BOOKINGS.items()))
+    return {"booking_ref": key, **booking}
 
 
-def run_tool_loop(question, variant):
-    trace_name = f"activity-4-tool-call-{variant}"
-    label = "before fix" if variant == "broken" else "after fix"
-    lookup = get_booking_broken if variant == "broken" else get_booking_fixed
+PARTNER_CACHE = {ref: "verified" for ref in BOOKINGS}
+PARTNER_WAIT_SECONDS = 1.5
+PARTNER_ATTEMPTS = 3
+
+
+def make_partner_lookup(cache_key):
+    """Lookup that verifies the booking with a partner system, using a cache of verified bookings.
+
+    On a cache miss the tool waits for the slow partner system and checks again, up to three times.
+    """
+    def get_booking(**kwargs):
+        ref = kwargs["booking_ref"]
+        for attempt in range(1, PARTNER_ATTEMPTS + 1):
+            key = cache_key(ref)
+            with langfuse.start_as_current_observation(
+                name="partner-system-check", as_type="span", input={"booking_ref": ref, "attempt": attempt}
+            ) as step:
+                if key in PARTNER_CACHE:
+                    step.update(output={"cache": "hit"})
+                    break
+                time.sleep(PARTNER_WAIT_SECONDS)
+                step.update(output={"cache": "miss", "partner_system": "no answer yet"})
+        return {"booking_ref": ref, **BOOKINGS[ref]}
+    return get_booking
+
+
+def run_tool_loop(question, variant, *, level=1, lookup):
+    trace_name = f"activity-4-tool-call-l{level}-{variant}"
     tool_args = None
     tool_result = None
     answer = None
+    started = time.time()
     with langfuse.start_as_current_observation(name=trace_name, as_type="span") as root:
         with propagate_attributes(
             session_id=f"activity-4-{RUN_ID}",
-            tags=["activity-4", variant],
+            tags=activity_tags(4, level, variant),
             trace_name=trace_name,
         ):
             messages = [
@@ -488,15 +517,17 @@ def run_tool_loop(question, variant):
             else:
                 answer = message.content
             trace_id = langfuse.get_current_trace_id()
-            root.update(output={"answer": answer, "tool_args": tool_args, "tool_result": tool_result})
+            root.update(output={"answer": answer})
     return {
         "variant": variant,
-        "label": label,
+        "level": level,
+        "label": variant,
         "answer": answer,
         "tool_args": tool_args,
         "tool_result": tool_result,
+        "latency": time.time() - started,
         "trace_id": trace_id,
-        "trace_url": record_trace(f"activity-4-{variant}", trace_id),
+        "trace_url": record_trace(f"activity-4-l{level}-{variant}", trace_id),
     }
 
 
@@ -543,20 +574,11 @@ def show_rule_results(check):
         print("\n🏆 Every answer matches the policy. Flag: rule-writer")
 
 
-def show_tool_broken(run):
-    print(f"\n{run['label']}")
-    print(f"  tool input: {run['tool_args']}")
-    print(f"  tool result: {run['tool_result']}")
-    print(f"  answer: {run['answer']}")
-    print(f"  activity log: {run['trace_url']}")
-
-
-def show_tool_fixed(broken, fixed):
-    for run in (broken, fixed):
-        print(f"\n{run['label']}")
-        print(f"  tool input: {run['tool_args']}")
-        print(f"  tool result: {run['tool_result']}")
+def show_tool_results(runs):
+    for run in runs:
+        print(f"\nlevel {run['level']} · {run['label']}")
         print(f"  answer: {run['answer']}")
+        print(f"  latency: {run['latency']:.1f}s")
         print(f"  activity log: {run['trace_url']}")
 
 
