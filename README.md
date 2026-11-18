@@ -10,7 +10,8 @@ Langfuse stack and an OpenAI-compatible model endpoint. Game masters: see `MENTO
 ## Prerequisites
 
 - Docker and Docker Compose.
-- An OpenAI-compatible chat-completions endpoint and a model name it serves.
+- An OpenAI-compatible chat-completions endpoint and a model name it serves. The model must
+  support tool calling (Case 4 forces a tool call).
 - Ports `3000` (Langfuse), `8888` (JupyterLab), and the compose stack's internal
   ports free on your machine.
 

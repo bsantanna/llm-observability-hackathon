@@ -346,19 +346,30 @@ def rule_passes(topic, answer):
     raise ValueError(f"unknown topic {topic}")
 
 
-def _policy_answer(system_prompt, question, query, active_only, step_name):
-    doc = retrieve(query, "gold", active_only=active_only)[0]
+def _policy_answer(system_prompt, question, query, active_only, step_name, *, top_k=1, show_status=False):
+    docs = retrieve(query, "gold", top_k=top_k, active_only=active_only)
+    doc = docs[0]
     with langfuse.start_as_current_observation(
         name="activity-3-retrieval",
         as_type="retriever",
-        input={"query": query, "filter": {"tier": "gold", "active_only": active_only}},
+        input={"query": query, "filter": {"tier": "gold", "active_only": active_only}, "top_k": top_k},
         output={"doc_id": doc["id"], "status": doc["status"], "effective_to": doc["effective_to"],
-                "tier": doc["tier"], "text": doc["text"]},
+                "tier": doc["tier"], "text": doc["text"],
+                "docs": [{key: item[key] for key in ("id", "status", "effective_to", "text")} for item in docs]},
     ):
         pass
+    if show_status:
+        policies = "\n".join(
+            f"- [status: {item['status']}"
+            + (f", valid until {item['effective_to']}" if item["effective_to"] else "")
+            + f"] {item['text']}"
+            for item in docs
+        )
+    else:
+        policies = "\n".join(item["text"] for item in docs)
     messages = [
         {"role": "system", "content": system_prompt},
-        {"role": "user", "content": f"I'm a Gold member. {question}\n\nRetrieved policy:\n{doc['text']}"},
+        {"role": "user", "content": f"I'm a Gold member. {question}\n\nRetrieved policy:\n{policies}"},
     ]
     started = time.time()
     response = client.chat.completions.create(
@@ -411,7 +422,9 @@ def run_rule_check(system_prompt):
                 with langfuse.start_as_current_observation(
                     name=f"rule-check-{topic}", as_type="span", input={"question": question}
                 ) as step:
-                    _, response, _ = _policy_answer(system_prompt, question, query, True, "activity-3-generation")
+                    _, response, _ = _policy_answer(
+                        system_prompt, question, query, False, "activity-3-generation", top_k=2, show_status=True
+                    )
                     answer = response.choices[0].message.content
                     passed = rule_passes(topic, answer)
                     step.update(output={"answer": answer, "matches_policy": passed})
@@ -487,28 +500,30 @@ def run_tool_loop(question, variant, *, level=1, lookup):
                 {"role": "user", "content": question},
             ]
             first = client.chat.completions.create(
-                model=MODEL, messages=messages, tools=[TOOL_SCHEMA], tool_choice="auto",
+                model=MODEL, messages=messages, tools=[TOOL_SCHEMA], tool_choice="required",
                 temperature=0, max_tokens=800, name="activity-4-generation-1",
             )
             message = first.choices[0].message
             if message.tool_calls:
-                call = message.tool_calls[0]
-                tool_args = json.loads(call.function.arguments)
                 messages.append(message.model_dump(exclude_none=True))
-                with langfuse.start_as_current_observation(
-                    name="get_booking", as_type="tool", input=tool_args
-                ) as tool_span:
-                    try:
-                        tool_result = lookup(**tool_args)
-                        tool_span.update(output=tool_result)
-                    except Exception as exc:
-                        tool_result = {"error": f"{type(exc).__name__}: {exc}"}
-                        tool_span.update(
-                            level="ERROR",
-                            status_message=f"{type(exc).__name__}: {exc}",
-                            output=tool_result,
-                        )
-                messages.append({"role": "tool", "tool_call_id": call.id, "content": json.dumps(tool_result)})
+                for call in message.tool_calls:
+                    args = json.loads(call.function.arguments)
+                    with langfuse.start_as_current_observation(
+                        name="get_booking", as_type="tool", input=args
+                    ) as tool_span:
+                        try:
+                            result = lookup(**args)
+                            tool_span.update(output=result)
+                        except Exception as exc:
+                            result = {"error": f"{type(exc).__name__}: {exc}"}
+                            tool_span.update(
+                                level="ERROR",
+                                status_message=f"{type(exc).__name__}: {exc}",
+                                output=result,
+                            )
+                    if tool_args is None:
+                        tool_args, tool_result = args, result
+                    messages.append({"role": "tool", "tool_call_id": call.id, "content": json.dumps(result)})
                 second = client.chat.completions.create(
                     model=MODEL, messages=messages, tools=[TOOL_SCHEMA], tool_choice="auto",
                     temperature=0, max_tokens=800, name="activity-4-generation-2",
