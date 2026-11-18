@@ -1,10 +1,11 @@
 # LLM Observability Hackathon
 
 Follow the activity logs, compare how the assistant behaves, correct a wrong answer,
-and fix a failed lookup. The participant notebooks are `notebook-1-rag.ipynb`,
+and fix a failed lookup, played as a game: three levels per case, flags, hints and a
+scoreboard. The participant notebooks are `notebook-1-rag.ipynb`,
 `notebook-2-output-format.ipynb`, `notebook-3-hallucination.ipynb`, and
-`notebook-4-tool-calling.ipynb`; each walks through one activity against the local
-Langfuse stack and an OpenAI-compatible model endpoint.
+`notebook-4-tool-calling.ipynb`; each walks through one case against the local
+Langfuse stack and an OpenAI-compatible model endpoint. Game masters: see `MENTORS.md`.
 
 ## Prerequisites
 
@@ -68,36 +69,38 @@ Some model calls take tens of seconds.
 
 ## Activities
 
-Each activity has its own session (`activity-<n>-<run-id>`) and tags, so the runs
-stay grouped. Langfuse calls these records traces; this guide calls them activity
-logs. Open the activity-log link printed by the notebook, then compare the runs.
-When a notebook runs inside the Docker network, the link is rewritten so it opens
-from your browser.
+Four cases, each with three levels that get harder. Each case has its own session
+(`activity-<n>-<run-id>`) and tags (`activity-<n>`, `l<level>`, `team-<your-team>`), so the
+runs stay grouped. Langfuse calls these records traces; this guide calls them activity logs.
+Open the activity-log link printed by the notebook and look for the evidence there: the
+notebooks never print it. When a notebook runs inside the Docker network, the link is
+rewritten so it opens from your browser.
 
-| Activity | Notebook | Activity-log names | What to look for |
+| Case | Notebook | Activity-log names | What to look at |
 |---|---|---|---|
-| 1 — Searching the right policy | `notebook-1-rag.ipynb` | `activity-1-rag-no-filter`, `activity-1-rag-filter` | The search filter, the policy the assistant found, and the answer. Compare the two runs. |
-| 2 — Getting a usable answer | `notebook-2-output-format.ipynb` | `activity-2-output-unconstrained`, `activity-2-output-constrained` | The assistant's answer and the format check. Compare which answer the next system can use. |
-| 3 — Correcting a wrong answer | `notebook-3-hallucination.ipynb` | `activity-3-hallucination-broken`, `activity-3-hallucination-fixed` | The instructions given to the assistant and the policy it found. Find the contradiction and correct the instructions. |
-| 4 — Fixing a failed lookup | `notebook-4-tool-calling.ipynb` | `activity-4-tool-call-broken`, `activity-4-tool-call-fixed` | The `get_booking` tool step: the details sent, the status, and the error. Compare the two runs. |
+| 1 — Searching the right policy | `notebook-1-rag.ipynb` | `activity-1-rag-l<level>-<variant>` | The search step: its limits, how many policies it returned, which ones, and what the answer cost. |
+| 2 — Getting a usable answer | `notebook-2-output-format.ipynb` | `activity-2-output-l<level>-<variant>` | The instructions, the booking system's check and reason code, and one step per customer request. |
+| 3 — Correcting a wrong answer | `notebook-3-hallucination.ipynb` | `activity-3-hallucination-l<level>-<variant>` | The instructions in the answer step, the policy in the search step (including its status), and one step per rule-check question. |
+| 4 — Fixing a failed lookup | `notebook-4-tool-calling.ipynb` | `activity-4-tool-call-l<level>-<variant>` | The `get_booking` tool step: what was sent, what came back, errors, and the timing of its inner steps. |
 
-Hints, not solutions:
+## How the game works
 
-- Activity 3: the first run's instructions say something the policy does not
-  support. The corrected run should follow the policy.
-- Activity 4: the tool step records the detail the assistant sent and the detail
-  the tool tried to read. Correct the tool, not the assistant's wording.
+1. **Team name.** Put your team name in the first code cell of every notebook
+   (`TEAM = "..."`) and use exactly the same name everywhere.
+2. **Levels.** Every case has Level 1 (100 points), Level 2 (200) and Level 3 (300). Each
+   level asks you to find something in the activity logs.
+3. **Flags.** Type what you found into `check_flag("2-1", "...")`. Wrong guesses cost
+   nothing. A correct answer prints a **claim code**.
+4. **Claim codes.** Paste each claim code into the form your game master shares. The
+   scoreboard updates from the form.
+5. **Hints.** `hint("2-1")` shows a hint. Each hint costs 25% of that level's points (two
+   hints at most per level). The claim code already knows how many hints you used.
+6. **Bonus.** One hidden flag is worth 150 points. The game master may drop a clue.
+7. **Demo.** At the end, each team shows one before/after pair of activity logs. The final
+   ranking combines flag points (60%) and the demo (40%).
 
-## Submit your findings
-
-For each activity, submit:
-
-- The activity-log link.
-- The policy or tool details that explain the behavior.
-- The cause and the change you made (instructions or tool).
-
-For Activities 3 and 4, include both activity-log links and state what changed
-between them.
+Some levels ask you to change something (instructions, a search setting, a tool) and rerun.
+Notebook cells are yours to edit: run the cells from top to bottom first, then experiment.
 
 ## Troubleshooting
 
@@ -109,3 +112,6 @@ between them.
   one; the notebooks limit the answer length but cannot make the provider faster.
 - Activity logs are missing — run the wrap-up cell in that notebook; it sends the
   remaining activity logs to Langfuse.
+- A claim code is not accepted by the form — check that `TEAM` is spelled the same in every
+  notebook, rerun that cell, and run `check_flag` again.
+- `TEAM is still 'your-team-name'` — set your team name in the first code cell and rerun it.
