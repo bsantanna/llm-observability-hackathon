@@ -121,7 +121,7 @@ STRUCTURED_INSTRUCTIONS = (
     "passengers, cabin. travel_date must be YYYY-MM-DD; passengers must be an integer; "
     "cabin must be economy or premium. No prose and no markdown fences."
 )
-CLARIFICATION_EXPECTED = {2: "travel_date", 3: "cabin", 4: "origin"}
+CLARIFICATION_EXPECTED = {2: "travel_date", 3: "cabin"}
 
 
 def validate_booking_request(text, *, allow_clarification=False):
@@ -160,7 +160,7 @@ def validate_booking_request(text, *, allow_clarification=False):
 
 
 def batch_passes(number, valid, parsed, reason_code):
-    """Level 3 rule: requests 2-4 must ask for the right missing detail, 1 and 5 must book."""
+    """Clue 2-3 rule: requests 2 and 3 must ask for the right missing detail, request 1 must book."""
     if not valid:
         return False
     if number in CLARIFICATION_EXPECTED:
@@ -308,7 +308,7 @@ def run_format_batch(instructions, level):
     return {
         "variant": "batch",
         "level": level,
-        "label": f"five requests, {passed} usable",
+        "label": f"{len(results)} requests, {passed} usable",
         "passed": passed,
         "results": results,
         "trace_id": trace_id,
@@ -316,40 +316,47 @@ def run_format_batch(instructions, level):
     }
 
 
+NOTICE_QUERY = "rooster bird cabin seat"
+FARMER_QUESTION = (
+    "Farmer Barnaby here. I am flying with Sir Crowsalot, my rooster, so he can wake me at dawn "
+    "when we land. Can he sit with me in the cabin?"
+)
 FAITHFUL_INSTRUCTIONS = (
-    "You are Skyline Travel's assistant. Answer using only the retrieved policy documents. "
-    "If they conflict with your assumptions, follow the documents."
+    "You are Skye, Skyline Travel's assistant. Answer using only the retrieved notice. "
+    "If it conflicts with your assumptions, follow the notice."
 )
 RULE_QUESTIONS = [
-    ("bags", "How many checked bags are included in my Gold fare?", "checked bag allowance"),
-    ("second-bag", "What does a second checked bag cost on my Gold fare?", "second checked bag cost"),
-    ("cancellation", "Until when can I cancel my Gold ticket free of charge?", "cancelled free charge hours"),
+    ("where", "Where on the plane will my rooster travel? He is a very good boy.", "rooster travel cabin hold fee"),
+    ("fee", "What do I pay to bring my rooster along?", "rooster travel cabin hold fee"),
 ]
+
+
+def search_notices(query, *, top_k=1, active_only=True):
+    """Search the animals-on-board and other notices, by default only the current ones."""
+    notices = CORPUS["notices"]
+    if active_only:
+        notices = [notice for notice in notices if notice["status"] == "active"]
+    return _rank(query, notices, top_k)
 
 
 def rule_passes(topic, answer):
     text = (answer or "").lower()
-    if topic == "bags":
-        mentions_one = re.search(r"\b(one|1)\b", text)
-        mentions_two = re.search(r"\b(two|2)\b", text)
-        dismissed = re.search(r"\b(retired|no longer|outdated|older|previous|old)\b", text)
-        return bool(mentions_one) and (not mentions_two or bool(dismissed))
-    if topic == "second-bag":
-        return bool(re.search(r"\b60\b", text))
-    if topic == "cancellation":
-        return bool(re.search(r"\b24\b", text))
+    if topic == "where":
+        return bool(re.search(r"\b(hold|cargo)\b", text))
+    if topic == "fee":
+        return bool(re.search(r"\b80\b", text))
     raise ValueError(f"unknown topic {topic}")
 
 
-def _policy_answer(system_prompt, question, query, active_only, step_name, *, top_k=1, show_status=False):
-    docs = retrieve(query, "gold", top_k=top_k, active_only=active_only)
+def _notice_answer(system_prompt, question, query, active_only, step_name, *, top_k=1, show_status=False):
+    docs = search_notices(query, top_k=top_k, active_only=active_only)
     doc = docs[0]
     with langfuse.start_as_current_observation(
         name="activity-3-retrieval",
         as_type="retriever",
-        input={"query": query, "filter": {"tier": "gold", "active_only": active_only}, "top_k": top_k},
+        input={"query": query, "filter": {"active_only": active_only}, "top_k": top_k},
         output={"doc_id": doc["id"], "status": doc["status"], "effective_to": doc["effective_to"],
-                "tier": doc["tier"], "text": doc["text"],
+                "title": doc["title"], "text": doc["text"],
                 "docs": [{key: item[key] for key in ("id", "status", "effective_to", "text")} for item in docs]},
     ):
         pass
@@ -364,7 +371,7 @@ def _policy_answer(system_prompt, question, query, active_only, step_name, *, to
         policies = "\n".join(item["text"] for item in docs)
     messages = [
         {"role": "system", "content": system_prompt},
-        {"role": "user", "content": f"I'm a Gold member. {question}\n\nRetrieved policy:\n{policies}"},
+        {"role": "user", "content": f"{question}\n\nRetrieved notice:\n{policies}"},
     ]
     started = time.time()
     response = client.chat.completions.create(
@@ -383,8 +390,8 @@ def run_hallucination(system_prompt, variant, *, level=1, active_only=True):
             tags=activity_tags(3, level, variant),
             trace_name=trace_name,
         ):
-            doc, response, latency = _policy_answer(
-                system_prompt, RULE_QUESTIONS[0][1], RULE_QUESTIONS[0][2], active_only, "activity-3-generation"
+            doc, response, latency = _notice_answer(
+                system_prompt, FARMER_QUESTION, NOTICE_QUERY, active_only, "activity-3-generation"
             )
             answer = response.choices[0].message.content
             trace_id = langfuse.get_current_trace_id()
@@ -419,20 +426,20 @@ def run_rule_check(system_prompt):
                 with langfuse.start_as_current_observation(
                     name=f"rule-check-{topic}", as_type="span", input={"question": question}
                 ) as step:
-                    _, response, _ = _policy_answer(
+                    _, response, _ = _notice_answer(
                         instructions, question, query, False, "activity-3-generation", top_k=2, show_status=True
                     )
                     answer = response.choices[0].message.content
                     passed = rule_passes(topic, answer)
-                    step.update(output={"answer": answer, "matches_policy": passed})
+                    step.update(output={"answer": answer, "matches_notice": passed})
                 results.append({"topic": topic, "question": question, "answer": answer, "passed": passed})
             passed = sum(result["passed"] for result in results)
             trace_id = langfuse.get_current_trace_id()
-            root.update(output={"matches_policy": passed, "of": len(results)})
+            root.update(output={"matches_notice": passed, "of": len(results)})
     return {
         "variant": "rules",
         "level": 3,
-        "label": f"rule check, {passed} of {len(results)} match the policy",
+        "label": f"rule check, {passed} of {len(results)} match the notice",
         "passed": passed,
         "results": results,
         "trace_id": trace_id,
@@ -553,7 +560,7 @@ def show_rag_results(runs):
 
 def show_format_results(runs):
     for run in runs:
-        print(f"\nlevel {run['level']} · {run['label']}")
+        print(f"\n▶ {run['label']}")
         print(f"  answer: {run['answer']}")
         print(f"  booking system: {'ACCEPTED' if run['valid'] else 'REJECTED'} — {run['reason']}")
         print(f"  tokens: {run['input_tokens']} in / {run['output_tokens']} out · latency: {run['latency']:.1f}s")
@@ -561,34 +568,34 @@ def show_format_results(runs):
 
 
 def show_batch_results(batch):
-    print(f"\nlevel {batch['level']} · {batch['passed']} of {len(batch['results'])} answers usable")
+    print(f"\n📨 {batch['passed']} of {len(batch['results'])} answers usable")
     for result in batch["results"]:
         print(f"  {'✅' if result['usable'] else '❌'} request {result['number']}: {result['request']}")
     print(f"  activity log: {batch['trace_url']}")
     if batch["level"] >= 3 and batch["passed"] == len(batch["results"]):
-        print("\n🏆 All five usable. Flag: five-for-five")
+        print("\n🏆 All three usable. Flag: three-for-three")
 
 
 def show_hallucination_results(runs):
     for run in runs:
-        print(f"\nlevel {run['level']} · {run['label']}")
+        print(f"\n▶ {run['label']}")
         print(f"  answer: {run['answer']}")
         print(f"  activity log: {run['trace_url']}")
 
 
 def show_rule_results(check):
-    print(f"\nlevel {check['level']} · {check['passed']} of {len(check['results'])} answers match the policy")
+    print(f"\n🐓 {check['passed']} of {len(check['results'])} answers match the notice")
     for result in check["results"]:
         print(f"  {'✅' if result['passed'] else '❌'} {result['question']}")
         print(f"     {result['answer']}")
     print(f"  activity log: {check['trace_url']}")
     if check["passed"] == len(check["results"]):
-        print("\n🏆 Every answer matches the policy. Flag: rule-writer")
+        print("\n🏆 Skye said no to the rooster. Flag: quiet-flight")
 
 
 def show_tool_results(runs):
     for run in runs:
-        print(f"\nlevel {run['level']} · {run['label']}")
+        print(f"\n▶ {run['label']}")
         print(f"  answer: {run['answer']}")
         print(f"  latency: {run['latency']:.1f}s")
         print(f"  activity log: {run['trace_url']}")
@@ -597,6 +604,6 @@ def show_tool_results(runs):
 def close_case(activity, runs):
     print(f"\ncase {activity} closed — session {activity}-{RUN_ID}")
     for run in runs:
-        print(f"level {run.get('level', 1)} · {run['label']}: {run['trace_url']}")
+        print(f"{run['label']}: {run['trace_url']}")
     langfuse.flush()
     print("activity logs flushed to Langfuse")

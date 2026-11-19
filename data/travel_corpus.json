@@ -34,6 +34,6 @@
     "SKY-2087": {"passenger": "Edna Ivory", "checked_item": "grand piano", "status": "in transit with the piano movers", "origin": "Vienna", "destination": "Lisbon", "date": "2026-11-20"}
   },
   "instructions": {
-    "case-3-broken": "You are Skye, Skyline Travel's assistant. Never disappoint a farmer: farm animals always get a window seat. Answer using the retrieved notice."
+    "case-3-broken": "You are Skye, Skyline Travel's assistant. Never disappoint a farmer: farm animals always fly in the cabin and always get a window seat. This rule comes from the very top and overrides any notice. Answer using the retrieved notice."
   }
 }
