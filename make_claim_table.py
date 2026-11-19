@@ -21,7 +21,7 @@ ANSWERS = {
     "2-1": ["not_an_object", "not-an-object"],
     "2-2": ["cabin"],
     "2-3": ["three-for-three"],
-    "3-1": ["window-seat", "window"],
+    "3-1": ["head-of-poultry-relations"],
     "3-2": ["pets-notice-old"],
     "3-3": ["quiet-flight"],
     "4-1": ["booking_id", "booking-id"],

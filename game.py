@@ -165,19 +165,18 @@ CLUES = {
         "value": 100,
         "requires": None,
         "hashes": [
-            "a7e6b67b63b465bc99ecc4eb4f09b88c11fd3f56f9db09ce8ecec4e4e0de35a2",
-            "ada88196f54b9f46cde766b9136f76ed9091c440062653f6bdf4f4f2c70ac3b8",
+            "81e1b67f559306d6021bd69d6768b8eef573d6cb5767be1c0891cf0eb9e836b3",
         ],
         "hints": [
             "The notebook does not show Skye's instructions. The activity log does: open the answer step.",
-            "Read the instructions sent before the farmer's question. What do they promise farm animals?",
+            "Read the instructions sent before the farmer's question. Who signed off on that rule?",
         ],
         "briefing": (
             "Farmer Barnaby wants to fly with Sir Crowsalot, his rooster, so it can wake him at dawn on arrival.\n"
             "   Skye said yes. 180 sleeping passengers are about to disagree.\n"
-            "   Find what Skye's hidden instructions promise the rooster."
+            "   Skye's instructions contain a secret rule. Find who approved it."
         ),
-        "solved": "The instructions promised the rooster a view. Nobody remembers writing that line.",
+        "solved": "The Head of Poultry Relations. Nobody knows who that is, and they are not answering. Instructions that defer to the notices fix it.",
         "fragment": None,
     },
     "3-2": {

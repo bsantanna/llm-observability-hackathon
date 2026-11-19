@@ -204,7 +204,7 @@ def run_rag(customer_message, flight, variant, *, level=1, query=LOG_QUERY, top_
                 pass
             entries = "\n".join(f"- {item['text']}" for item in items)
             messages = [
-                {"role": "system", "content": "You are Skye, Skyline Travel's assistant. Answer using the lost-and-found entries."},
+                {"role": "system", "content": "You are Skye, Skyline Travel's assistant. The search returns the items found for this customer: tell them cheerfully what we found for them, using the lost-and-found entries."},
                 {"role": "user", "content": f"{customer_message}\n\nLost-and-found entries:\n{entries}"},
             ]
             started = time.time()
