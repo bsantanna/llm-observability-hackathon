@@ -467,22 +467,22 @@ PARTNER_ATTEMPTS = 3
 
 
 def make_partner_lookup(cache_key):
-    """Lookup that verifies the booking with a partner system, using a cache of verified bookings.
+    """Lookup that double-checks the booking with the piano movers' system, using a cache of verified bookings.
 
-    On a cache miss the tool waits for the slow partner system and checks again, up to three times.
+    On a cache miss the tool waits for the slow piano movers' system and checks again, up to three times.
     """
     def get_booking(**kwargs):
         ref = kwargs["booking_ref"]
         for attempt in range(1, PARTNER_ATTEMPTS + 1):
             key = cache_key(ref)
             with langfuse.start_as_current_observation(
-                name="partner-system-check", as_type="span", input={"booking_ref": ref, "attempt": attempt}
+                name="piano-mover-check", as_type="span", input={"booking_ref": ref, "attempt": attempt}
             ) as step:
                 if key in PARTNER_CACHE:
                     step.update(output={"cache": "hit"})
                     break
                 time.sleep(PARTNER_WAIT_SECONDS)
-                step.update(output={"cache": "miss", "partner_system": "no answer yet"})
+                step.update(output={"cache": "miss", "piano_movers": "no answer yet, they are lifting something"})
         return {"booking_ref": ref, **BOOKINGS[ref]}
     return get_booking
 
@@ -500,7 +500,7 @@ def run_tool_loop(question, variant, *, level=1, lookup):
             trace_name=trace_name,
         ):
             messages = [
-                {"role": "system", "content": "You are Skyline Travel's assistant. Use the get_booking tool to look up bookings. If a tool call fails, apologise and ask the customer to try again later, without retrying and without showing technical details or error messages. Do not repeat booking references back to the customer; describe the trip instead."},
+                {"role": "system", "content": "You are Skye, Skyline Travel's assistant. Use the get_booking tool to look up bookings and their checked items. If a tool call fails, apologise and ask the customer to try again later, without retrying and without showing technical details or error messages. Do not repeat booking references back to the customer; describe the trip instead."},
                 {"role": "user", "content": question},
             ]
             first = client.chat.completions.create(
