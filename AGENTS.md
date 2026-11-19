@@ -47,15 +47,15 @@ Rules:
 
 This repository is a one-time hackathon deliverable: participant notebooks that demonstrate LLM observability with Langfuse. It is not a product and not a library.
 
-The repository exists to teach four investigative skills, in order: tracing a RAG pipeline with and without a retrieval filter, controlling output format, finding and fixing a hallucination via the system prompt, and debugging a broken tool call from trace data. Everything checked in MUST serve one of those four activities or the participant workflow around them.
+The repository exists to teach four investigative skills, in order: tracing a RAG pipeline with and without a retrieval filter, controlling output format, finding and fixing a hallucination via the system prompt, and debugging a broken tool call from trace data. Everything checked in MUST serve one of those four activities or the participant workflow around them. The activities are played as four comic, absurd Mini-Games set at the fictional Skyline Travel (a fisherman's lost fish, an influencer's cockpit selfie, a farmer's rooster, an elderly lady's grand piano); there are no ticket classes, loyalty levels or policy-rule puzzles.
 
 Boundaries:
 
 - The deliverable is the notebooks participants clone and execute, plus the minimum support files they need (dependency manifest, sample data, docs). Do not add application code, services, or deployment infrastructure.
 - Langfuse is the observability backend. Do not build custom logging, dashboards, or telemetry plumbing that Langfuse already provides.
 - Keep the exercises runnable by a participant on a laptop, in one sitting, against the repository's compose stack, with keys they create in the local Langfuse project. Docker and Docker Compose are prerequisites: the stack provides the Langfuse backend (postgres, clickhouse, redis, minio, langfuse web/worker) and the jupyter service. No cluster and no external database beyond that stack; inference is hosted outside it.
-- Activity numbering, ordering, the three levels per activity, their planted defects, and their flags are participant-facing contracts. Changing them changes the game; update the notebooks, `game.py`, `make_claim_table.py`, README, and `MENTORS.md` in the same change.
-- The activities are played as a game: each level ends in a flag that participants find in the trace, verify with `check_flag`, and turn into a claim code for a scoreboard the game master runs outside the repository. Hints cost points. Flags MUST come from code-controlled trace data (document ids, filters, tool arguments, errors, step names, counts), never from model wording or token counts, so every team gets the same answer with any model.
+- Activity numbering, ordering, the clues per Mini-Game, their planted defects, their flags, the vault fragments and the vault phrase are participant-facing contracts. Changing them changes the game; update the notebooks, `game.py`, `make_claim_table.py`, README, and `MENTORS.md` in the same change.
+- The activities are played as an escape room: each clue ends in a flag that participants find in the trace and verify with `check_flag`; a correct flag opens the door to the next clue (`open_door`), and each Mini-Game's last clue gives a fragment of the vault phrase that opens the vault at the end of notebook 4. Correct flags also give claim codes for a secondary scoreboard the game master runs outside the repository; the spirit is collaborative, the score only decides the final tally. Hints cost a little. Flags MUST come from code-controlled trace data (document ids, filters, tool arguments, errors, step names, counts), never from model wording or token counts, so every team gets the same answer with any model.
 - Never name an employer, a real event, its date, or a meeting platform anywhere in the repository. The only story is the fictional Skyline Travel.
 - Prefer boring, explicit code over abstraction. Reusable activity logic lives in `experiment_utils.py`; notebooks call it and focus on the activity logs. A one-off display helper can stay inline.
 
@@ -63,10 +63,10 @@ Agenda:
 
 | Activity | Topic | Duration | Participant outcome |
 |---|---|---|---|
-| 1 | Searching the right policy (RAG) | 35 min | Find the wrong-fare policy, the missing second policy, and the cost of sending every policy |
-| 2 | Getting a usable answer (output format) | 20 min | Read the booking system's reason codes and write instructions that make five messy requests usable |
-| 3 | Correcting a wrong answer (hallucination) | 20 min | Trace wrong answers to hidden instructions or a retired policy, and write instructions that pass a rule check |
-| 4 | Fixing a failed lookup (tool calling) | 40 min | Fix a tool that fails, one that returns the wrong booking, and one that is slow |
+| 1 | Something Smells Fishy (search, RAG) | 35 min | Find the wrong lost item, the item the search never handed over, and the cost of sending the whole log |
+| 2 | The Cockpit Selfie (output format) | 20 min | Read the booking system's reason codes and write instructions that make three messy requests usable |
+| 3 | Cock-a-Doodle-Don't (wrong answers) | 20 min | Trace a wrong yes to a hidden instruction or a retired notice, and write instructions that pass the check |
+| 4 | The Piano Has Left the Building (tool calling) | 40 min | Fix a tool that fails, one that returns the wrong booking, and one that is slow; open the vault |
 
 Supporting agenda items: kickoff and notebook clone (15 min), breaks and mid-point progress check (10 min each), conclusion and wrap-up (20 min), team demos (30 min), voting and winners announcement (20 min), open exploration (10 min).
 
@@ -152,14 +152,14 @@ If a `.env` file is used, it MUST stay uncommitted. `docker compose` reads it fo
 Match the existing style once cells exist. Do not reformat untouched sections.
 
 - One notebook per activity, numbered to match the agenda. Each notebook starts with a Markdown cell stating the purpose, the expected observation, the bad practice, the good practice, why the good practice works, and the deliverable for that activity.
-- Write for business participants: plain language, and explain technical terms (trace/activity log, span/step, generation/answer) the first time they appear.
-- Cells MUST execute top-to-bottom in a fresh kernel without manual reordering. Clear stale outputs before committing; the notebooks ship executed, with outputs that show the comparison the activity asks for.
+- Write for engineers new to LLMs: plain language, light and absurd humor (the joke is the situation, never the person), and explain technical terms (trace/activity log, span/step, generation/answer) the first time they appear.
+- Cells MUST execute top-to-bottom in a fresh kernel without manual reordering. Clear stale outputs before committing; the notebooks ship executed from an empty game state (no `.game_state.json`), with outputs up to the first door of each Mini-Game, so the committed outputs never spoil the chain.
 - Deterministic by default: fixed seeds, fixed prompts, fixed inputs. Where randomness is the point (sampling, temperature), say so in the cell and record the parameters in the trace.
 - No secrets, absolute local paths, or machine-specific state in cells. Read configuration from the environment and fail loudly when a key is missing.
 - Model, client, and activity logic live in `experiment_utils.py`; notebooks call it and focus on the activity logs. The shared setup reads `LANGFUSE_*` and `OPENAI_*` from the environment and stops with a clear error when a value is missing.
 - Print or display only what the activity asks participants to compare: the answer, the trace id or URL, token counts, cost, latency. Avoid dumping raw JSON.
 - Planted defects in every level MUST be visible in the trace, not hidden behind a comment that explains them. The participant finds the cause from observability data.
-- Notebook output MUST NOT print a flag value; participants open the trace to find it. Every level ends with a `check_flag("<n>-<level>", ...)` cell and a commented `hint(...)`.
+- Notebook output MUST NOT print a flag value; participants open the trace to find it. Every clue after the first of a Mini-Game sits behind `if open_door("<clue>"):` so a locked notebook still executes end to end; every clue ends with a `check_flag("<clue>", ...)` cell and a commented `hint(...)`.
 - Answers live in plain text in `MENTORS.md` and `make_claim_table.py` by design: the game runs on trust.
 
 ## Langfuse Tracing Conventions
