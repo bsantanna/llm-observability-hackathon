@@ -15,7 +15,7 @@ from pathlib import Path
 from langfuse import Langfuse, propagate_attributes
 from langfuse.openai import OpenAI
 
-from game import check_flag, current_team, hint, set_team
+from game import check_flag, current_team, hint, open_door, set_team
 
 REQUIRED = [
     "LANGFUSE_PUBLIC_KEY",
@@ -93,33 +93,26 @@ def print_summary(activity):
         print(f"{name}: {url}")
 
 
-def retrieve(query, tier=None, *, topic=None, top_k=1, active_only=True):
-    documents = CORPUS["documents"]
-    if tier is not None:
-        documents = [doc for doc in documents if doc["tier"] == tier]
-    if topic is not None:
-        documents = [doc for doc in documents if doc["topic"] == topic]
-    if active_only:
-        documents = [doc for doc in documents if doc["status"] == "active"]
+LOG_QUERY = "bag found on board"
+
+
+def _rank(query, records, top_k):
+    """Keyword search: score = how many query words appear in the text; ties keep file order."""
     terms = re.findall(r"[a-z0-9]+", query.lower())
     ranked = sorted(
-        ((sum(term in doc["text"].lower() for term in terms), index, doc)
-         for index, doc in enumerate(documents)),
+        ((sum(term in record["text"].lower() for term in terms), index, record)
+         for index, record in enumerate(records)),
         key=lambda row: (-row[0], row[1]),
     )
-    return [
-        {
-            "id": doc["id"],
-            "tier": doc["tier"],
-            "topic": doc["topic"],
-            "status": doc["status"],
-            "effective_to": doc["effective_to"],
-            "title": doc["title"],
-            "text": doc["text"],
-            "score": score,
-        }
-        for score, _, doc in ranked[:top_k]
-    ]
+    return [{**record, "score": score} for score, _, record in ranked[:top_k]]
+
+
+def search_log(query, flight=None, *, top_k=1):
+    """Search the lost-and-found log, optionally only one flight's items."""
+    entries = CORPUS["lost_and_found"]
+    if flight is not None:
+        entries = [entry for entry in entries if entry["flight"] == flight]
+    return _rank(query, entries, top_k)
 
 
 BOOKING_FIELDS = ("origin", "destination", "travel_date", "passengers", "cabin")
@@ -182,19 +175,18 @@ def activity_tags(activity, level, variant):
     return tags
 
 
-def run_rag(customer_message, tier, variant, *, level=1, query="checked bag allowance",
-            topic=None, top_k=1, send_all=False):
+def run_rag(customer_message, flight, variant, *, level=1, query=LOG_QUERY, top_k=1, send_all=False):
     trace_name = f"activity-1-rag-l{level}-{variant}"
     if send_all:
-        label = "every policy sent"
-        docs = retrieve(query, top_k=len(CORPUS["documents"]), active_only=False)
+        label = "the whole log sent"
+        items = search_log(query, top_k=len(CORPUS["lost_and_found"]))
         search_filter = None
     else:
-        label = "all policies" if tier is None else f"{tier.title()} fare only"
+        label = "every flight" if flight is None else f"flight {flight} only"
         if top_k > 1:
             label += f", top {top_k} results"
-        docs = retrieve(query, tier, topic=topic, top_k=top_k)
-        search_filter = {key: value for key, value in (("tier", tier), ("topic", topic)) if value} or None
+        items = search_log(query, flight, top_k=top_k)
+        search_filter = {"flight": flight} if flight else None
     with langfuse.start_as_current_observation(name=trace_name, as_type="span") as root:
         with propagate_attributes(
             session_id=f"activity-1-{RUN_ID}",
@@ -204,16 +196,16 @@ def run_rag(customer_message, tier, variant, *, level=1, query="checked bag allo
             with langfuse.start_as_current_observation(
                 name="activity-1-retrieval",
                 as_type="retriever",
-                input={"query": query, "filter": search_filter, "top_k": len(docs) if send_all else top_k},
-                output={"count": len(docs),
-                        "docs": [{key: doc[key] for key in ("id", "tier", "topic", "text")} for doc in docs]},
-                metadata={"detective_note": "golden-suitcase"},
+                input={"query": query, "filter": search_filter, "top_k": len(items) if send_all else top_k},
+                output={"count": len(items),
+                        "items": [{key: item[key] for key in ("id", "flight", "item", "text")} for item in items]},
+                metadata={"detective_note": "golden-fishhook"},
             ):
                 pass
-            policies = "\n".join(f"- {doc['text']}" for doc in docs)
+            entries = "\n".join(f"- {item['text']}" for item in items)
             messages = [
-                {"role": "system", "content": "Answer using the retrieved policy documents."},
-                {"role": "user", "content": f"{customer_message}\n\nRetrieved policies:\n{policies}"},
+                {"role": "system", "content": "You are Skye, Skyline Travel's assistant. Answer using the lost-and-found entries."},
+                {"role": "user", "content": f"{customer_message}\n\nLost-and-found entries:\n{entries}"},
             ]
             started = time.time()
             response = client.chat.completions.create(
@@ -230,7 +222,7 @@ def run_rag(customer_message, tier, variant, *, level=1, query="checked bag allo
         "level": level,
         "label": label,
         "answer": answer,
-        "docs": docs,
+        "items": items,
         "input_tokens": getattr(usage, "prompt_tokens", None),
         "output_tokens": getattr(usage, "completion_tokens", None),
         "latency": latency,
@@ -553,7 +545,7 @@ def run_tool_loop(question, variant, *, level=1, lookup):
 
 def show_rag_results(runs):
     for run in runs:
-        print(f"\nlevel {run['level']} · {run['label']}")
+        print(f"\n🔎 {run['label']}")
         print(f"  answer: {run['answer']}")
         print(f"  tokens: {run['input_tokens']} in / {run['output_tokens']} out · latency: {run['latency']:.1f}s")
         print(f"  activity log: {run['trace_url']}")

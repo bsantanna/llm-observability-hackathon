@@ -393,8 +393,8 @@ def _is_open(clue, solved):
     return required is None or required in solved
 
 
-def _locked(solved):
-    print(LOCKED_LINES[len(solved) % len(LOCKED_LINES)])
+def _locked(clue, solved):
+    print(LOCKED_LINES[(len(solved) + sum(map(ord, clue))) % len(LOCKED_LINES)])
 
 
 def open_door(clue):
@@ -403,7 +403,7 @@ def open_door(clue):
         return False
     solved = _team_state(_load_state())["solved"]
     if not _is_open(clue, solved):
-        _locked(solved)
+        _locked(clue, solved)
         return False
     print(f"🚪 {clue} — {CLUES[clue]['title']}")
     print(f"   {CLUES[clue]['briefing']}")
@@ -416,7 +416,7 @@ def hint(clue):
     state = _load_state()
     team = _team_state(state)
     if not _is_open(clue, team["solved"]):
-        _locked(team["solved"])
+        _locked(clue, team["solved"])
         return
     hints = CLUES[clue]["hints"]
     if not hints:
@@ -438,7 +438,7 @@ def check_flag(clue, guess):
     state = _load_state()
     team = _team_state(state)
     if not _is_open(clue, team["solved"]):
-        _locked(team["solved"])
+        _locked(clue, team["solved"])
         return None
     if flag_hash(guess) not in CLUES[clue]["hashes"]:
         print(WRONG_LINES[int(flag_hash(guess), 16) % len(WRONG_LINES)])
