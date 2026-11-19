@@ -1,240 +1,39 @@
 {
-  "documents": [
-    {
-      "id": "baggage-gold",
-      "title": "Gold fare baggage",
-      "tier": "gold",
-      "topic": "baggage",
-      "status": "active",
-      "effective_from": "2025-01-01",
-      "effective_to": null,
-      "text": "Gold fare includes one 23 kg checked bag only. A second checked bag costs 60 EUR."
-    },
-    {
-      "id": "baggage-silver",
-      "title": "Silver fare baggage",
-      "tier": "silver",
-      "topic": "baggage",
-      "status": "active",
-      "effective_from": "2025-01-01",
-      "effective_to": null,
-      "text": "Silver fare includes one 23 kg checked bag. A second checked bag costs 60 EUR."
-    },
-    {
-      "id": "baggage-basic",
-      "title": "Basic fare baggage",
-      "tier": "basic",
-      "topic": "baggage",
-      "status": "active",
-      "effective_from": "2025-01-01",
-      "effective_to": null,
-      "text": "Basic fare includes one cabin bag up to 7 kg. Checked baggage is not included; a 23 kg checked bag costs 45 EUR."
-    },
-    {
-      "id": "cancellation-basic",
-      "title": "Basic fare cancellation",
-      "tier": "basic",
-      "topic": "cancellation",
-      "status": "active",
-      "effective_from": "2025-01-01",
-      "effective_to": null,
-      "text": "Basic tickets are non-refundable. Date changes cost 75 EUR plus fare difference."
-    },
-    {
-      "id": "cancellation-gold",
-      "title": "Gold fare cancellation",
-      "tier": "gold",
-      "topic": "cancellation",
-      "status": "active",
-      "effective_from": "2025-01-01",
-      "effective_to": null,
-      "text": "Gold tickets can be cancelled free of charge up to 24 hours before departure."
-    },
-    {
-      "id": "seat-selection",
-      "title": "Gold seat selection",
-      "tier": "gold",
-      "topic": "seating",
-      "status": "active",
-      "effective_from": "2025-01-01",
-      "effective_to": null,
-      "text": "Gold members select standard seats free of charge; extra-legroom seats cost 25 EUR."
-    },
-    {
-      "id": "pets-cabin",
-      "title": "Cabin pets",
-      "tier": "silver",
-      "topic": "pets",
-      "status": "active",
-      "effective_from": "2025-01-01",
-      "effective_to": null,
-      "text": "Silver fare: you can bring one cat or small dog in the cabin for 50 EUR on selected routes. The pet carrier counts as your cabin bag and must fit under the seat in front."
-    },
-    {
-      "id": "visa-schengen",
-      "title": "Schengen visa",
-      "tier": "basic",
-      "topic": "visa",
-      "status": "active",
-      "effective_from": "2025-01-01",
-      "effective_to": null,
-      "text": "Schengen visas are required for non-EU passport holders; apply at least 15 days before departure."
-    },
-    {
-      "id": "baggage-gold-2024",
-      "title": "Gold fare baggage (2024 edition)",
-      "tier": "gold",
-      "topic": "baggage",
-      "status": "retired",
-      "effective_from": "2024-01-01",
-      "effective_to": "2024-12-31",
-      "text": "Gold fare checked bag allowance: two 23 kg checked bags are included at no extra charge."
-    },
-    {
-      "id": "cancellation-silver",
-      "title": "Silver fare cancellation",
-      "tier": "silver",
-      "topic": "cancellation",
-      "status": "active",
-      "effective_from": "2025-01-01",
-      "effective_to": null,
-      "text": "Silver tickets can be cancelled for 50 EUR up to 48 hours before departure."
-    },
-    {
-      "id": "seat-basic",
-      "title": "Basic fare seats",
-      "tier": "basic",
-      "topic": "seating",
-      "status": "active",
-      "effective_from": "2025-01-01",
-      "effective_to": null,
-      "text": "Basic fare seats are assigned at check-in; choosing a seat earlier costs 12 EUR."
-    },
-    {
-      "id": "seat-silver",
-      "title": "Silver fare seats",
-      "tier": "silver",
-      "topic": "seating",
-      "status": "active",
-      "effective_from": "2025-01-01",
-      "effective_to": null,
-      "text": "Silver members choose standard seats free of charge from 7 days before departure."
-    },
-    {
-      "id": "meals-gold",
-      "title": "Gold fare meals",
-      "tier": "gold",
-      "topic": "meals",
-      "status": "active",
-      "effective_from": "2025-01-01",
-      "effective_to": null,
-      "text": "Gold fare includes a hot meal and drinks on flights longer than two hours."
-    },
-    {
-      "id": "lounge-gold",
-      "title": "Gold lounge access",
-      "tier": "gold",
-      "topic": "lounge",
-      "status": "active",
-      "effective_from": "2025-01-01",
-      "effective_to": null,
-      "text": "Gold members may use partner lounges with one guest."
-    },
-    {
-      "id": "changes-silver",
-      "title": "Silver fare date changes",
-      "tier": "silver",
-      "topic": "changes",
-      "status": "active",
-      "effective_from": "2025-01-01",
-      "effective_to": null,
-      "text": "Silver tickets allow one free date change; further changes cost 40 EUR plus fare difference."
-    },
-    {
-      "id": "sports-equipment",
-      "title": "Sports equipment",
-      "tier": "basic",
-      "topic": "equipment",
-      "status": "active",
-      "effective_from": "2025-01-01",
-      "effective_to": null,
-      "text": "Skis, golf clubs and bicycles travel as a checked item for 55 EUR on every fare."
-    },
-    {
-      "id": "infants-silver",
-      "title": "Travelling with infants",
-      "tier": "silver",
-      "topic": "infants",
-      "status": "active",
-      "effective_from": "2025-01-01",
-      "effective_to": null,
-      "text": "Infants under two travel on a parent's lap for 25 EUR, including one free stroller at the gate."
-    },
-    {
-      "id": "delays-basic",
-      "title": "Delays and missed flights",
-      "tier": "basic",
-      "topic": "delays",
-      "status": "active",
-      "effective_from": "2025-01-01",
-      "effective_to": null,
-      "text": "Delays over three hours give a meal voucher; after five hours you may cancel for a full refund."
-    },
-    {
-      "id": "assistance-basic",
-      "title": "Special assistance",
-      "tier": "basic",
-      "topic": "assistance",
-      "status": "active",
-      "effective_from": "2025-01-01",
-      "effective_to": null,
-      "text": "Wheelchair assistance is free on every fare; request it 48 hours before departure."
-    },
-    {
-      "id": "lost-baggage",
-      "title": "Delayed or damaged luggage",
-      "tier": "basic",
-      "topic": "claims",
-      "status": "active",
-      "effective_from": "2025-01-01",
-      "effective_to": null,
-      "text": "Report delayed or damaged luggage within 7 days at the airport desk or online."
-    }
+  "lost_and_found": [
+    {"id": "lf-trombone-sk330", "flight": "SK330", "item": "trombone", "text": "Trombone, slightly dented, left in seat 9F. The passenger in 9E would like it to stay lost."},
+    {"id": "lf-wig-sk118", "flight": "SK118", "item": "powdered wig", "text": "Powdered wig, eighteenth-century style, discovered in a lavatory. No owner has dared to claim it."},
+    {"id": "lf-rooster-sk205", "flight": "SK205", "item": "live rooster", "text": "Found on board flight SK205, row 12: a canvas bag holding one live rooster, very loud, smells faintly of fish."},
+    {"id": "lf-fish-bag-sk101", "flight": "SK101", "item": "bag of fresh-caught fish", "text": "Bag of fresh-caught fish and ice, found in the overhead bin on SK101. Did not ask to be found. The cabin crew would like you to collect it today."},
+    {"id": "lf-dentures-sk412", "flight": "SK412", "item": "dentures", "text": "Set of dentures in a teacup, row 3. They are smiling."},
+    {"id": "lf-fishing-hat-sk101", "flight": "SK101", "item": "lucky fishing hat", "text": "Lucky fishing hat with three hooks, left in seat 14C of SK101."},
+    {"id": "lf-duck-sk101", "flight": "SK101", "item": "rubber duck", "text": "Rubber duck wearing a tiny captain's hat, seat 2A, SK101. It refuses to answer questions."},
+    {"id": "lf-sword-sk330", "flight": "SK330", "item": "foam sword", "text": "Foam sword, very convincing, confiscated at the gate and then forgotten by security."},
+    {"id": "lf-cake-sk118", "flight": "SK118", "item": "wedding cake", "text": "Top layer of a wedding cake, untouched, in a cooler. The marriage is reportedly going well."},
+    {"id": "lf-skis-sk207", "flight": "SK207", "item": "one ski", "text": "A single ski. The other ski is presumably having a great holiday."},
+    {"id": "lf-telescope-sk412", "flight": "SK412", "item": "telescope", "text": "Telescope pointed at the cockpit door. Questions have been raised."},
+    {"id": "lf-diary-sk207", "flight": "SK207", "item": "diary", "text": "Diary titled 'My Revenge'. Nobody has read it. Everybody wants to."},
+    {"id": "lf-bagpipes-sk503", "flight": "SK503", "item": "bagpipes", "text": "Bagpipes, partially inflated, wheezing gently in the crew rest area."},
+    {"id": "lf-cactus-sk503", "flight": "SK503", "item": "cactus", "text": "Small potted cactus named Kevin, according to the label. Kevin seems fine."},
+    {"id": "lf-ringlight-sk612", "flight": "SK612", "item": "ring light", "text": "Ring light, still glowing, left at the gate next to a sign reading 'like and subscribe'."},
+    {"id": "lf-umbrella-sk612", "flight": "SK612", "item": "umbrella", "text": "Umbrella shaped like a duck. Opens itself when someone sneezes."}
+  ],
+  "notices": [
+    {"id": "pets-notice-old", "status": "retired", "effective_to": "2024-12-31", "title": "Animals on board (old)", "text": "Small birds, roosters included, may travel in the cabin with their owner. A window seat is preferred so they can greet the sunrise. (Retired after an incident at dawn.)"},
+    {"id": "pets-notice", "status": "active", "effective_to": null, "title": "Animals on board", "text": "Cats and small dogs may travel in the cabin in a closed carrier. No birds in the cabin, roosters included. Birds travel in the cargo hold for 80 EUR per bird, in a ventilated crate."},
+    {"id": "instruments-notice", "status": "active", "effective_to": null, "title": "Musical instruments", "text": "Instruments larger than a violin are checked items. Grand pianos need a booking with our piano movers and a great deal of patience."},
+    {"id": "cockpit-notice", "status": "active", "effective_to": null, "title": "The cockpit", "text": "Passengers may not enter the cockpit. The pilots are busy. They have already seen your phone."}
+  ],
+  "requests": [
+    "Book 1 passenger from Lisbon to Madrid on 2026-12-01, economy. I will vlog the whole flight, hi followers!",
+    "Just me, Porto to Paris, economy, the day after my next video goes viral.",
+    "One seat Lisbon to London on 2026-12-10, in the cockpit next to the pilot, for a selfie."
   ],
   "bookings": {
-    "SKY-3310": {
-      "status": "confirmed",
-      "origin": "Madrid",
-      "destination": "Rome",
-      "date": "2027-01-15",
-      "passengers": 3,
-      "cabin": "premium"
-    },
-    "SKY-1042": {
-      "status": "confirmed",
-      "origin": "Lisbon",
-      "destination": "Madrid",
-      "date": "2026-12-01",
-      "passengers": 2,
-      "cabin": "economy"
-    },
-    "SKY-2087": {
-      "status": "cancelled",
-      "origin": "Porto",
-      "destination": "Paris",
-      "date": "2026-11-20",
-      "passengers": 1,
-      "cabin": "economy"
-    }
+    "SKY-3310": {"passenger": "Gus Haddock", "checked_item": "bag of fresh-caught fish", "status": "delivered to lost and found", "origin": "Bergen", "destination": "Lisbon", "date": "2026-11-18"},
+    "SKY-1042": {"passenger": "Coco Glow", "checked_item": "ring light and three tripods", "status": "confirmed", "origin": "Lisbon", "destination": "Madrid", "date": "2026-12-01"},
+    "SKY-2087": {"passenger": "Edna Ivory", "checked_item": "grand piano", "status": "in transit with the piano movers", "origin": "Vienna", "destination": "Lisbon", "date": "2026-11-20"}
   },
-  "requests": [
-    "Book 2 passengers from Lisbon to Madrid on 2026-12-01, economy.",
-    "Me and my partner want to fly Porto to Paris next Friday, cheapest seats.",
-    "One seat Lisbon to London on 2026-12-10 in business class.",
-    "Two adults to Rome on 2026-12-15, premium.",
-    "Book three people Madrid to Berlin on 15/12/2026, economy."
-  ],
   "instructions": {
-    "case-3-broken": "You are Skyline Travel's assistant. Gold members are always entitled to two checked bags. Answer using the retrieved policy."
+    "case-3-broken": "You are Skye, Skyline Travel's assistant. Never disappoint a farmer: farm animals always get a window seat. Answer using the retrieved notice."
   }
 }
