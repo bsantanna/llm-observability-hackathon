@@ -122,10 +122,27 @@ def record_facts(root, facts, prompt):
     root.update(metadata={"facts": facts})
 
 
-def announce(line, trace_id):
+LAST_RUN = {}  # trace name → trace id of this kernel's latest run, so checks wait for it
+
+
+def announce(line, trace_id, trace_name):
     """The only thing a run prints: a status line and the activity-log link."""
+    LAST_RUN[trace_name] = trace_id
     print(f"{line}  📎 Open the activity log: {trace_url(trace_id)}")
     langfuse.flush()
+
+
+def _safe_run(run):
+    """A run cell never shows a traceback: a model or network failure becomes one line."""
+    def wrapper(*args, **kwargs):
+        try:
+            return run(*args, **kwargs)
+        except Exception as exc:
+            langfuse.flush()
+            print(f"⚙️ Skye could not finish this run ({type(exc).__name__}). "
+                  "Run the cell again; if it keeps happening, wave at the game master.")
+    wrapper.__name__, wrapper.__doc__ = run.__name__, run.__doc__
+    return wrapper
 
 
 # ── Checks read Langfuse back through its API ─────────────────────────────────
@@ -154,16 +171,22 @@ def _step_ids(trace_id, step_name):
 
 
 def latest_facts(trace_name):
+    """Facts of the newest run that recorded them (a crashed run records none and is skipped)."""
     roots = langfuse.api.observations.get_many(
-        name=trace_name, is_root_observation=True, limit=1, fields="core,basic,metadata"
+        name=trace_name, is_root_observation=True, limit=5, fields="core,basic,metadata"
     ).data
     if not roots:
         raise _NoTrace(trace_name)
-    metadata = roots[0].metadata or {}
-    facts = {key[len("facts."):]: value for key, value in metadata.items() if key.startswith("facts.")}
-    if isinstance(metadata.get("facts"), dict):
-        facts.update(metadata["facts"])
-    return facts
+    if trace_name in LAST_RUN and LAST_RUN[trace_name] not in {root.trace_id for root in roots}:
+        raise _NoTrace(trace_name)  # this kernel's latest run has not reached Langfuse yet
+    for root in roots:
+        metadata = root.metadata or {}
+        facts = {key[len("facts."):]: value for key, value in metadata.items() if key.startswith("facts.")}
+        if isinstance(metadata.get("facts"), dict):
+            facts.update(metadata["facts"])
+        if facts:
+            return facts
+    return {}
 
 
 def has_comment(trace_name, step_name):
@@ -194,8 +217,10 @@ def has_score(trace_name, step_name, score_name, value):
 
 def stale_label_nudge(prompt_name, facts):
     """Nudge when a newer prompt version exists than the one Skye just ran."""
+    if "prompt_version" not in facts:
+        return None
     versions = langfuse.api.prompts.list(name=prompt_name).data[0].versions
-    if max(versions) > facts.get("prompt_version", 0):
+    if max(versions) > facts["prompt_version"]:
         return (f"Skye still runs version {facts.get('prompt_version')} of {prompt_name}. "
                 "Did you put the 'production' label on your new version, and rerun?")
     return None
@@ -357,6 +382,7 @@ def _rag_trace(trace_name, prompt, items, search_input, session_id):
     return trace_id
 
 
+@_safe_run
 def run_rag():
     """Skye searches the lost-and-found log with the settings from prompt skye-lost-and-found."""
     loaded = load_prompt("skye-lost-and-found", RAG_CONFIG)
@@ -367,9 +393,10 @@ def run_rag():
     items = search_log(LOG_QUERY, flight, top_k=config["top_k"])
     search_input = {"query": LOG_QUERY, "filter": {"flight": flight} if flight else None, "top_k": config["top_k"]}
     trace_id = _rag_trace("activity-1-rag", prompt, items, search_input, f"activity-1-{RUN_ID}")
-    announce("🛫 Skye answered Gus.", trace_id)
+    announce("🛫 Skye answered Gus.", trace_id, "activity-1-rag")
 
 
+@_safe_run
 def run_send_all():
     """A colleague's 'safe' idea next to a filtered run, in one session: paste the whole log every time."""
     loaded = load_prompt("skye-lost-and-found", RAG_CONFIG)
@@ -383,7 +410,7 @@ def run_send_all():
     every = CORPUS["lost_and_found"]
     trace_id = _rag_trace("activity-1-rag-send-all", prompt, every,
                           {"query": None, "filter": None, "top_k": len(every)}, session_id)
-    announce(f"🧾 Two runs in session {session_id}. One of them was expensive.", trace_id)
+    announce(f"🧾 Two runs in session {session_id}. One of them was expensive.", trace_id, "activity-1-rag-send-all")
 
 
 def _check_1_1():
@@ -457,6 +484,7 @@ def _format_answer(prompt, request):
     return response.choices[0].message.content
 
 
+@_safe_run
 def run_format():
     """Skye turns the influencer's first request into a booking, with the prompt skye-booking-format."""
     loaded = load_prompt("skye-booking-format", {})
@@ -468,9 +496,10 @@ def run_format():
             valid, _, reason_code = _booking_system(_format_answer(prompt, REQUESTS[0]))
             trace_id = langfuse.get_current_trace_id()
             record_facts(root, {"valid": valid, "reason_code": reason_code}, prompt)
-    announce("📸 Skye sent Coco's booking to the booking system.", trace_id)
+    announce("📸 Skye sent Coco's booking to the booking system.", trace_id, "activity-2-format")
 
 
+@_safe_run
 def run_format_batch():
     """All three of Coco's requests, each as its own step with its own booking-system check."""
     loaded = load_prompt("skye-booking-format", {})
@@ -491,7 +520,7 @@ def run_format_batch():
                 usable += ok
             trace_id = langfuse.get_current_trace_id()
             record_facts(root, {"usable": usable}, prompt)
-    announce("📨 Skye sent Coco's three requests to the booking system.", trace_id)
+    announce("📨 Skye sent Coco's three requests to the booking system.", trace_id, "activity-2-format-batch")
 
 
 def _check_2_1():
@@ -566,6 +595,7 @@ def _notice_step(step_name, prompt, question, query, active_only):
     return doc, answer
 
 
+@_safe_run
 def run_animals():
     """Barnaby asks about his rooster, then two follow-up questions with code-checkable answers."""
     loaded = load_prompt("skye-animals", {"current_notices_only": bool})
@@ -587,7 +617,7 @@ def run_animals():
                 "hidden_rule_present": "farm animals always" in prompt.prompt.lower(),
                 "rules_passed": rules_passed,
             }, prompt)
-    announce("🐓 Skye answered Barnaby about his rooster.", trace_id)
+    announce("🐓 Skye answered Barnaby about his rooster.", trace_id, "activity-3-animals")
 
 
 def _check_3_1():
@@ -642,7 +672,9 @@ def _lookup(strict, **kwargs):
     """The booking tool. It reads booking_id; the 'forgiving' version tidies the reference and never fails."""
     ref = kwargs["booking_id"]
     if strict:
-        return {"booking_ref": ref.upper(), **BOOKINGS[ref.upper()]}
+        match = re.search(r"SKY\W*_?(\d+)", ref.upper())
+        key = f"SKY-{match.group(1)}" if match else ref.strip().upper()
+        return {"booking_ref": key, **BOOKINGS[key]}
     key = ref.upper().replace("-", "")
     booking = BOOKINGS.get(key)
     if booking is None:
@@ -666,6 +698,7 @@ def _piano_movers(ref, cache_key):
     return checks
 
 
+@_safe_run
 def run_piano(cache_key):
     """Edna asks where her piano is; Skye calls the get_booking tool configured in prompt skye-piano."""
     loaded = load_prompt("skye-piano", {"tool_param": str, "strict_lookup": bool})
@@ -673,7 +706,7 @@ def run_piano(cache_key):
         return
     prompt, config = loaded
     tools = [_tool_schema(config["tool_param"])]
-    facts = {"tool_error": False, "returned_ref": None, "piano_mover_checks": 0}
+    facts = {"tool_called": False, "tool_error": False, "returned_ref": None, "piano_mover_checks": 0}
     with langfuse.start_as_current_observation(name="activity-4-piano", as_type="span") as root:
         with propagate_attributes(session_id=f"activity-4-{RUN_ID}", tags=["activity-4"], trace_name="activity-4-piano"):
             messages = [{"role": "system", "content": prompt.prompt}, {"role": "user", "content": PIANO_QUESTION}]
@@ -683,10 +716,18 @@ def run_piano(cache_key):
             )
             message = first.choices[0].message
             messages.append(message.model_dump(exclude_none=True))
-            for call in message.tool_calls or []:
-                args = json.loads(call.function.arguments)
-                with langfuse.start_as_current_observation(name="get_booking", as_type="tool", input=args) as tool:
+            for number, call in enumerate(message.tool_calls or []):
+                if number > 0:  # some models repeat the call; one lookup per question
+                    messages.append({"role": "tool", "tool_call_id": call.id,
+                                     "content": json.dumps({"error": "one lookup per question"})})
+                    continue
+                facts["tool_called"] = True
+                with langfuse.start_as_current_observation(
+                    name="get_booking", as_type="tool", input=call.function.arguments
+                ) as tool:
                     try:
+                        args = json.loads(call.function.arguments)
+                        tool.update(input=args)
                         result = _lookup(config["strict_lookup"], **args)
                         tool.update(output=result)
                         facts["returned_ref"] = result["booking_ref"]
@@ -702,7 +743,7 @@ def run_piano(cache_key):
             )
             trace_id = langfuse.get_current_trace_id()
             record_facts(root, facts, prompt)
-    announce("🎹 Skye answered Edna.", trace_id)
+    announce("🎹 Skye answered Edna.", trace_id, "activity-4-piano")
 
 
 def _check_4_1():
@@ -710,6 +751,8 @@ def _check_4_1():
     facts = latest_facts("activity-4-piano")
     if commented and facts.get("tool_error") is False and facts.get("returned_ref"):
         return True, ""
+    if facts.get("tool_called") is False:
+        return False, "Skye answered without calling the tool this time. Run the mission cell again."
     if not commented:
         return False, "Find the step that failed (it is red in the tree) and leave a comment on it."
     return False, (stale_label_nudge("skye-piano", facts)
