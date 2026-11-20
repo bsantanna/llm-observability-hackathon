@@ -81,10 +81,10 @@ version with the `production` label.
 
 | Activity | Notebook | Story | Prompt | Missions |
 |---|---|---|---|---|
-| 1 — Something Smells Fishy | `notebook-1-rag.ipynb` | A fisherman's lost bag of fresh-caught fish | `skye-lost-and-found` | 1.1–1.4: the trace tree, the search step, prompt config and versions, sessions and cost |
-| 2 — The Cockpit Selfie | `notebook-2-output-format.ipynb` | An influencer who wants a selfie with the pilot | `skye-booking-format` | 2.1–2.2: a downstream rejection, iterating on a prompt |
-| 3 — Cock-a-Doodle-Don't | `notebook-3-hallucination.ipynb` | A farmer flying with his rooster as an alarm clock | `skye-animals` | 3.1–3.2: the prompt behind an answer, stale data in the search |
-| 4 — The Piano Has Left the Building | `notebook-4-tool-calling.ipynb` | An elderly lady looking for her grand piano | `skye-piano` | 4.1–4.3: tool errors, scoring a wrong result, the timeline |
+| 1 — Something Smells Fishy | `notebook-1-rag.ipynb` | A fisherman's lost bag of fish (and a dolphin nobody ordered) | `skye-lost-and-found` | 1.1–1.8: the trace tree, the search step, prompt config and versions; 🥊 1.4–1.8: cost, latency, cut-off answers, no search, prompt versions |
+| 2 — The Cockpit Selfie | `notebook-2-output-format.ipynb` | An influencer who wants a selfie with the pilot | `skye-booking-format` | 2.1–2.6: a downstream rejection, iterating on a prompt; 🥊 2.3–2.6: formats, length limits, private data |
+| 3 — Cock-a-Doodle-Don't | `notebook-3-hallucination.ipynb` | A farmer flying with his rooster as an alarm clock | `skye-animals` | 3.1–3.6: the prompt behind an answer, stale data in the search; 🥊 3.3–3.6: made-up numbers, "I don't know", cut notices, promises |
+| 4 — The Piano Has Left the Building | `notebook-4-tool-calling.ipynb` | An elderly lady looking for her grand piano | `skye-piano` | 4.1–4.7: tool errors, scoring a wrong result, the timeline; 🥊 4.4–4.7: retries, needless calls, hidden errors, the wrong tool |
 
 ## How to play
 
@@ -95,9 +95,13 @@ version with the `production` label.
 4. **Check**: run `check("1.2")`. ✅ means done; ❌ tells you what is still missing.
 5. **Stuck?** Open the "💡 Stuck?" block under the mission, then ask the game master.
 
-Cells can run in any order, as often as you like. `report()` lists your missions. Langfuse login:
-`mentor@example.com` / `hackathon`. At the end, each team demos one activity with a before/after
-pair of traces.
+🥊 **Pick the winner** missions are bonus. The cell runs Skye twice, as option A and option B, in
+one session. Compare the two runs in Langfuse and comment on the **top line** of the run you would
+ship. The check only looks at which run has your comment.
+
+Cells can run in any order, as often as you like. `report()` lists your missions, with the
+duels on their own line. Langfuse login: `mentor@example.com` / `hackathon`. At the wrap-up, a few
+volunteers show one before/after pair of traces.
 
 ## Troubleshooting
 
@@ -110,6 +114,8 @@ pair of traces.
   `.env`. Restart Jupyter without it: `env -u OPENAI_API_KEY docker compose up -d jupyter`.
 - The assistant is slow — lower the provider's reasoning setting if it exposes
   one; the notebooks limit the answer length but cannot make the provider faster.
+- A duel answer is empty or stops early when it should not — the model spent its tokens
+  thinking; run the cell again.
 - `check` says there is no activity log yet — run the mission cell first, or wait a few seconds
   and run the check again.
 - You changed a prompt but nothing changed — the new version needs the `production` label.
