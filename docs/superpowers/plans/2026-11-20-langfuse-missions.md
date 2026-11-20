@@ -210,3 +210,15 @@ The notebook opens with the AGENTS.md purpose block (purpose, what to expect, ba
 - [ ] **Step 2:** Run `a1_check.py` … `a4_check.py` in order on that stack, then `report()`: 11/11 ✅ and the celebration.
 - [ ] **Step 3:** `grep -c '"outputs": \[\]' notebook-*.ipynb` equals each notebook's code-cell count (outputs cleared).
 - [ ] **Step 4:** One manual pass in the browser of missions 1.1, 1.4 and 4.2, doing the action in the UI rather than the API, and see ✅.
+
+## Spike findings (Task 1, Langfuse 4.80 / SDK 5.2, local stack)
+
+- SDK 5.2 has **no trace list/get** in `lf.api`. A trace is found through its root observation: `lf.api.observations.get_many(name=<trace name>, is_root_observation=True, limit=1, fields="core,basic,metadata")`. Results come newest first (by start time).
+- Facts: `root.update(metadata={"facts": {...}})` on the root span. The API returns metadata **flattened**: `{"facts.flight_filter": True, "facts.item_ids": [...] , ...}`; read keys with the `facts.` prefix. Last `update` wins.
+- Observations of a trace: `lf.api.observations.get_many(trace_id=tid, fields="core,basic")` → `.name`, `.id`, `.type`, `.level` (`ObservationLevel.ERROR`). With `fields="core,basic,prompt"` a generation has `.prompt_name`, `.prompt_version`.
+- Prompt link: `lf.start_as_current_observation(..., as_type="generation", prompt=<prompt client>)` or `langfuse_prompt=` on `langfuse.openai` calls.
+- Prompts: `lf.create_prompt(name=, prompt=, config=, labels=["production"])`; `lf.get_prompt(name, label="production", cache_ttl_seconds=0)` (`.version`, `.prompt`, `.config`); a missing prompt raises `langfuse.api.NotFoundError` (logs one "not found" line — pass `max_retries=0`); a new version without the label leaves production unchanged; `lf.api.prompts.list(name=name).data[0].versions` lists versions.
+- Comments: `lf.api.comments.get(object_type="OBSERVATION"|"TRACE", object_id=...)`; scratch scripts create with `lf.api.comments.create(project_id=lf.api.projects.get().data[0].id, object_type=..., object_id=..., content=...)`.
+- Score config: `lf.api.score_configs.get(limit=100).data` / `lf.api.score_configs.create(name="correct", data_type="BOOLEAN")`.
+- Scores: `lf.api.scores.get_many(trace_id=tid, observation_id=oid, name="correct")` — **`observation_id` requires `trace_id`**; boolean value comes back as `False`/`True`. Scratch scripts create with `lf.create_score(name="correct", value=0, data_type="BOOLEAN", trace_id=, observation_id=, config_id=)`.
+- Lag: flush → visible through the API in about 1.5 s.
