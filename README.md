@@ -1,11 +1,11 @@
 # LLM Observability Hackathon
 
-An escape room for engineers who are new to LLMs. Skyline Travel's AI assistant, Skye, is having
-a very bad day: a fisherman lost his fish, an influencer wants a selfie in the cockpit, a farmer
-is flying with his rooster as an alarm clock, and an elderly lady would like to know where her
-grand piano is. Four comic **Mini-Games**, one per story, each a chain of clues you solve by
-reading the activity logs in Langfuse. Every answer opens the next door; every Mini-Game gives a
-fragment of the code that opens the vault at the end.
+A hands-on Langfuse tutorial for engineers who are new to LLMs. Skyline Travel's AI assistant,
+Skye, is having a very bad day: a fisherman lost his fish, an influencer wants a selfie in the
+cockpit, a farmer is flying with his rooster as an alarm clock, and an elderly lady would like to
+know where her grand piano is. Four comic activities, one per story. Each is a series of
+**missions** you solve in Langfuse: read the trace, point at the step that went wrong, and fix
+Skye's prompt and settings in Langfuse Prompt Management.
 
 The participant notebooks are `notebook-1-rag.ipynb`, `notebook-2-output-format.ipynb`,
 `notebook-3-hallucination.ipynb`, and `notebook-4-tool-calling.ipynb`; each runs against the
@@ -15,7 +15,7 @@ local Langfuse stack and an OpenAI-compatible model endpoint. Game masters: see 
 
 - Docker and Docker Compose.
 - An OpenAI-compatible chat-completions endpoint and a model name it serves. The model must
-  support tool calling (Mini-Game 4 forces a tool call).
+  support tool calling (Activity 4 forces a tool call).
 - Ports `3000` (Langfuse), `8888` (JupyterLab), and the compose stack's internal
   ports free on your machine.
 
@@ -56,8 +56,8 @@ yourself; the notebooks do not load `.env` implicitly.
 ## Run the notebooks
 
 Open each activity notebook in JupyterLab and run the cells from top to bottom in
-a new kernel. The notebooks come with example outputs; running one again replaces
-its outputs and creates new activity logs.
+a new kernel. The notebooks ship without outputs; every run creates new traces in
+your Langfuse.
 
 Headless execution:
 
@@ -72,42 +72,32 @@ notebook-3-hallucination.ipynb notebook-4-tool-calling.ipynb
 
 Some model calls take tens of seconds.
 
-## Mini-Games
+## Activities
 
-Each Mini-Game has its own session (`activity-<n>-<run-id>`) and tags (`activity-<n>`,
-`l<level>`, `team-<your-team>`), so the runs stay grouped. Langfuse calls these records traces;
-the notebooks call them activity logs. Open the activity-log link printed by the notebook and look
-for the evidence there: the notebooks never print it. When a notebook runs inside the Docker
-network, the link is rewritten so it opens from your browser.
+Each activity has its own session (`activity-<n>-<run-id>`) and tag (`activity-<n>`). The
+notebook prints only a status line and a 📎 link to the trace: everything you need is in Langfuse.
+Skye's instructions and settings are prompts in Langfuse (**Prompts** page); Skye always runs the
+version with the `production` label.
 
-| Mini-Game | Notebook | Story | Activity-log names | What to look at |
+| Activity | Notebook | Story | Prompt | Missions |
 |---|---|---|---|---|
-| 1 — Something Smells Fishy | `notebook-1-rag.ipynb` | A fisherman's lost bag of fresh-caught fish | `activity-1-rag-l<level>-<variant>` | The search step: its filter, how many items it returned, which ones, and what the answer cost. |
-| 2 — The Cockpit Selfie | `notebook-2-output-format.ipynb` | An influencer who wants a selfie with the pilot | `activity-2-output-l<level>-<variant>` | The booking system's reason code, and one step per customer request. |
-| 3 — Cock-a-Doodle-Don't | `notebook-3-hallucination.ipynb` | A farmer flying with his rooster as an alarm clock | `activity-3-hallucination-l<level>-<variant>` | The instructions in the answer step, the notice in the search step (including its status), and one step per farmer question. |
-| 4 — The Piano Has Left the Building | `notebook-4-tool-calling.ipynb` | An elderly lady looking for her grand piano | `activity-4-tool-call-l<level>-<variant>` | The `get_booking` tool step: what was sent, what came back, errors, and the timing of its inner steps. |
+| 1 — Something Smells Fishy | `notebook-1-rag.ipynb` | A fisherman's lost bag of fresh-caught fish | `skye-lost-and-found` | 1.1–1.4: the trace tree, the search step, prompt config and versions, sessions and cost |
+| 2 — The Cockpit Selfie | `notebook-2-output-format.ipynb` | An influencer who wants a selfie with the pilot | `skye-booking-format` | 2.1–2.2: a downstream rejection, iterating on a prompt |
+| 3 — Cock-a-Doodle-Don't | `notebook-3-hallucination.ipynb` | A farmer flying with his rooster as an alarm clock | `skye-animals` | 3.1–3.2: the prompt behind an answer, stale data in the search |
+| 4 — The Piano Has Left the Building | `notebook-4-tool-calling.ipynb` | An elderly lady looking for her grand piano | `skye-piano` | 4.1–4.3: tool errors, scoring a wrong result, the timeline |
 
 ## How to play
 
-1. **Team name.** Put your team name in the first code cell of every notebook
-   (`TEAM = "..."`) and use exactly the same name everywhere.
-2. **Doors.** Every clue sits behind a door. Run its cell: an open door prints a briefing, a
-   locked one prints 🔒 and a joke. The first clue of each Mini-Game is always open.
-3. **Answers.** Find the answer in the activity log and type it into `check_flag("1-1", "...")`.
-   Wrong guesses cost nothing. A correct answer opens the next door: rerun the next cell.
-4. **Hints.** `hint("1-1")` gives a nudge and costs 10% of that clue's points (two at most).
-   Still stuck after both hints? Ask the game master, who will give you the answer.
-5. **Vault.** The last clue of each Mini-Game gives a 🔑 fragment. The four fragments, in order,
-   open the vault at the end of Mini-Game 4. Teams may share fragments.
-6. **Claim codes.** Each correct answer prints a claim code. Paste it into the game master's
-   form. The scoreboard only decides the final tally; the screen shows a shared recovery meter.
-7. **Helping.** If you have escaped a Mini-Game, help a stuck team by pointing at the right step
-   (never the answer). The game master gives good-colleague points.
-8. **Post-mortem.** At the end, each team explains the root cause of one Mini-Game with one
-   before/after pair of activity logs.
+1. **Run** a mission cell. It prints one line and a 📎 link.
+2. **Investigate** in Langfuse, following the mission's "In Langfuse" steps.
+3. **Act** in Langfuse: comment on the step that went wrong, score it, or save a new prompt
+   version with the `production` label. One fix (4.3) is a line of notebook code.
+4. **Check**: run `check("1.2")`. ✅ means done; ❌ tells you what is still missing.
+5. **Stuck?** Open the "💡 Stuck?" block under the mission, then ask the game master.
 
-Some clues ask you to change something (instructions, a search setting, a tool) and rerun.
-Notebook cells are yours to edit: run the cells from top to bottom first, then experiment.
+Cells can run in any order, as often as you like. `report()` lists your missions. Langfuse login:
+`mentor@example.com` / `hackathon`. At the end, each team demos one activity with a before/after
+pair of traces.
 
 ## Troubleshooting
 
@@ -117,11 +107,9 @@ Notebook cells are yours to edit: run the cells from top to bottom first, then e
   `LANGFUSE_PUBLIC_KEY`, and `LANGFUSE_SECRET_KEY` against the project in Langfuse.
 - The assistant is slow — lower the provider's reasoning setting if it exposes
   one; the notebooks limit the answer length but cannot make the provider faster.
-- Activity logs are missing — run the wrap-up cell in that notebook; it sends the
-  remaining activity logs to Langfuse.
-- A claim code is not accepted by the form — check that `TEAM` is spelled the same in every
-  notebook, rerun that cell, and run `check_flag` again.
-- A door stays locked — run the previous clue's `check_flag` again with its answer. Progress is
-  kept in `.game_state.json` per team name, so a changed `TEAM` starts with every door locked.
-  Delete that file to start over.
-- `TEAM is still 'your-team-name'` — set your team name in the first code cell and rerun it.
+- `check` says there is no activity log yet — run the mission cell first, or wait a few seconds
+  and run the check again.
+- You changed a prompt but nothing changed — the new version needs the `production` label.
+- `⚙️ Config of ...` — the prompt's config has a wrong value (for example `"true"` in quotes
+  instead of `true`); save a new version with the value fixed.
+- Start a prompt over — on the Prompts page, put the `production` label back on version 1.

@@ -47,15 +47,15 @@ Rules:
 
 This repository is a one-time hackathon deliverable: participant notebooks that demonstrate LLM observability with Langfuse. It is not a product and not a library.
 
-The repository exists to teach four investigative skills, in order: tracing a RAG pipeline with and without a retrieval filter, controlling output format, finding and fixing a hallucination via the system prompt, and debugging a broken tool call from trace data. Everything checked in MUST serve one of those four activities or the participant workflow around them. The activities are played as four comic, absurd Mini-Games set at the fictional Skyline Travel (a fisherman's lost fish, an influencer's cockpit selfie, a farmer's rooster, an elderly lady's grand piano); there are no ticket classes, loyalty levels or policy-rule puzzles.
+The repository exists to teach four investigative skills, in order: tracing a RAG pipeline with and without a retrieval filter, controlling output format, finding and fixing a hallucination via the system prompt, and debugging a broken tool call from trace data. Everything checked in MUST serve one of those four activities or the participant workflow around them. The activities are four comic, absurd stories set at the fictional Skyline Travel (a fisherman's lost fish, an influencer's cockpit selfie, a farmer's rooster, an elderly lady's grand piano); there are no ticket classes, loyalty levels or policy-rule puzzles.
 
 Boundaries:
 
 - The deliverable is the notebooks participants clone and execute, plus the minimum support files they need (dependency manifest, sample data, docs). Do not add application code, services, or deployment infrastructure.
 - Langfuse is the observability backend. Do not build custom logging, dashboards, or telemetry plumbing that Langfuse already provides.
 - Keep the exercises runnable by a participant on a laptop, in one sitting, against the repository's compose stack, with keys they create in the local Langfuse project. Docker and Docker Compose are prerequisites: the stack provides the Langfuse backend (postgres, clickhouse, redis, minio, langfuse web/worker) and the jupyter service. No cluster and no external database beyond that stack; inference is hosted outside it.
-- Activity numbering, ordering, the clues per Mini-Game, their planted defects, their flags, the vault fragments and the vault phrase are participant-facing contracts. Changing them changes the game; update the notebooks, `game.py`, `make_claim_table.py`, README, and `MENTORS.md` in the same change.
-- The activities are played as an escape room: each clue ends in a flag that participants find in the trace and verify with `check_flag`; a correct flag opens the door to the next clue (`open_door`), and each Mini-Game's last clue gives a fragment of the vault phrase that opens the vault at the end of notebook 4. Correct flags also give claim codes for a secondary scoreboard the game master runs outside the repository; the spirit is collaborative, the score only decides the final tally. Hints cost a little. Flags MUST come from code-controlled trace data (document ids, filters, tool arguments, errors, step names, counts), never from model wording or token counts, so every team gets the same answer with any model.
+- Activity numbering, ordering, the missions per activity, their planted defects, the seeded prompts (names, version-1 text and config) and the observation names the checks look for are participant-facing contracts. Changing them changes the game; update the notebooks, `experiment_utils.py`, README, and `MENTORS.md` in the same change.
+- The activities are played as **Langfuse missions**, a guided tutorial. A run cell runs Skye and prints only a status line and a trace link; the participant follows the mission's "In Langfuse" steps, then acts in Langfuse: a comment on the guilty step or trace, a `correct` score on a step, or a new `production` version of one of Skye's prompts (text and config live in Langfuse Prompt Management). `check("<mission>")` asks the Langfuse API whether the action is done and prints ✅ or a nudge; `report()` lists the missions. There are no typed answers, locks, points or claim codes; progress is shared, not ranked. Checks MUST rely only on code-controlled data (observation names, where a comment or score sits, facts the run code records on the trace) and never on comment text, model wording or token counts, except the code-checked outputs of missions 2.2 and 3.2.
 - Never name an employer, a real event, its date, or a meeting platform anywhere in the repository. The only story is the fictional Skyline Travel.
 - Prefer boring, explicit code over abstraction. Reusable activity logic lives in `experiment_utils.py`; notebooks call it and focus on the activity logs. A one-off display helper can stay inline.
 
@@ -63,16 +63,16 @@ Agenda:
 
 | Activity | Topic | Duration | Participant outcome |
 |---|---|---|---|
-| 1 | Something Smells Fishy (search, RAG) | 35 min | Find the wrong lost item, the item the search never handed over, and the cost of sending the whole log |
-| 2 | The Cockpit Selfie (output format) | 20 min | Read the booking system's reason codes and write instructions that make three messy requests usable |
-| 3 | Cock-a-Doodle-Don't (wrong answers) | 20 min | Trace a wrong yes to a hidden instruction or a retired notice, and write instructions that pass the check |
-| 4 | The Piano Has Left the Building (tool calling) | 40 min | Fix a tool that fails, one that returns the wrong booking, and one that is slow; open the vault |
+| 1 | Something Smells Fishy (search, RAG) | 35 min | Read a trace; comment on the search that let the rooster in; fix the filter and the number of results in the prompt config; find the expensive trace in a session |
+| 2 | The Cockpit Selfie (output format) | 20 min | Comment on the booking system's rejection; write a prompt version that makes three messy requests usable |
+| 3 | Cock-a-Doodle-Don't (wrong answers) | 20 min | Follow the answer to its prompt and remove a hidden instruction; comment on the search that served a retired notice and switch to current notices |
+| 4 | The Piano Has Left the Building (tool calling) | 40 min | Comment on a failing tool call, score a wrong tool result, fix a cache that never hits; finish the report |
 
 Supporting agenda items: kickoff and notebook clone (15 min), breaks and mid-point progress check (10 min each), conclusion and wrap-up (20 min), team demos (30 min), voting and winners announcement (20 min), open exploration (10 min).
 
 ## Repository State
 
-The repository contains the compose stack, dependency manifest, sample data, shared notebook setup, and four participant notebooks. Currently checked in: `LICENSE` (Apache-2.0), `AGENTS.md`, `docker-compose.yml`, `Dockerfile`, `requirements.txt`, `.env.example`, `.gitignore`, `README.md`, `MENTORS.md`, `data/`, `experiment_utils.py`, `game.py`, `make_claim_table.py`, the four `notebook-*.ipynb` files, and the design and plan under `docs/superpowers/`. `.venv/` is a local Python 3.12 virtual environment used for host-side work; it is scratch, not a deliverable, and MUST NOT be committed.
+The repository contains the compose stack, dependency manifest, sample data, shared notebook setup, and four participant notebooks. Currently checked in: `LICENSE` (Apache-2.0), `AGENTS.md`, `docker-compose.yml`, `Dockerfile`, `requirements.txt`, `.env.example`, `.gitignore`, `README.md`, `MENTORS.md`, `data/`, `experiment_utils.py`, the four `notebook-*.ipynb` files, and the design and plan under `docs/superpowers/`. `.venv/` is a local Python 3.12 virtual environment used for host-side work; it is scratch, not a deliverable, and MUST NOT be committed.
 
 Layout:
 
@@ -81,10 +81,8 @@ notebook-1-rag.ipynb    Activity 1: searching the right policy
 notebook-2-output-format.ipynb  Activity 2: getting a usable answer
 notebook-3-hallucination.ipynb  Activity 3: correcting a wrong answer
 notebook-4-tool-calling.ipynb   Activity 4: fixing a failed lookup
-experiment_utils.py     shared setup and activity helpers
-game.py                 flags (salted hashes), hints, points, claim codes; no side effects
-make_claim_table.py     writes claim_codes.csv for the game master's scoring sheet
-MENTORS.md              game master guide: scoreboard, run of show, answers, rubric
+experiment_utils.py     shared setup, prompt seeding, activity runs, mission checks
+MENTORS.md              game master guide: run of show, mission answers, resets
 docker-compose.yml      self-hosted Langfuse stack plus the jupyter service
 Dockerfile              jupyter image build; installs requirements.txt
 requirements.txt        dependency manifest (single source of pinned deps)
@@ -153,14 +151,14 @@ Match the existing style once cells exist. Do not reformat untouched sections.
 
 - One notebook per activity, numbered to match the agenda. Each notebook starts with a Markdown cell stating the purpose, the expected observation, the bad practice, the good practice, why the good practice works, and the deliverable for that activity.
 - Write for engineers new to LLMs: plain language, light and absurd humor (the joke is the situation, never the person), and explain technical terms (trace/activity log, span/step, generation/answer) the first time they appear.
-- Cells MUST execute top-to-bottom in a fresh kernel without manual reordering. Clear stale outputs before committing; the notebooks ship executed from an empty game state (no `.game_state.json`), with outputs up to the first door of each Mini-Game, so the committed outputs never spoil the chain.
+- Cells MUST execute top-to-bottom in a fresh kernel without manual reordering. Notebooks ship with cleared outputs: links would point to traces that do not exist in a participant's stack.
 - Deterministic by default: fixed seeds, fixed prompts, fixed inputs. Where randomness is the point (sampling, temperature), say so in the cell and record the parameters in the trace.
 - No secrets, absolute local paths, or machine-specific state in cells. Read configuration from the environment and fail loudly when a key is missing.
 - Model, client, and activity logic live in `experiment_utils.py`; notebooks call it and focus on the activity logs. The shared setup reads `LANGFUSE_*` and `OPENAI_*` from the environment and stops with a clear error when a value is missing.
-- Print or display only what the activity asks participants to compare: the answer, the trace id or URL, token counts, cost, latency. Avoid dumping raw JSON.
+- A run prints one status line and the trace link, nothing else: never the answer, ids, tokens, cost, latency, prompt text or verdicts. Everything to compare lives in Langfuse.
 - Planted defects in every level MUST be visible in the trace, not hidden behind a comment that explains them. The participant finds the cause from observability data.
-- Notebook output MUST NOT print a flag value; participants open the trace to find it. Every clue after the first of a Mini-Game sits behind `if open_door("<clue>"):` so a locked notebook still executes end to end; every clue ends with a `check_flag("<clue>", ...)` cell and a commented `hint(...)`.
-- Answers live in plain text in `MENTORS.md` and `make_claim_table.py` by design: the game runs on trust.
+- Each mission is: Markdown briefing with numbered "In Langfuse" steps, a run cell (when needed), a collapsed "💡 Stuck?" block, and a `check("<mission>")` cell. No cell raises because a mission is not done or a prompt config is malformed.
+- Answers and fixes live in plain text in `MENTORS.md`. `experiment_utils.py` seeds Skye's prompts at import only when missing and never overwrites a team's edits.
 
 ## Langfuse Tracing Conventions
 
@@ -181,13 +179,12 @@ There is no test suite or linter. Verification is execution plus observation:
 - A change to prompts or model configuration is verified by comparing the before and after traces, not by reading the answer.
 - A change to setup, dependencies, or credentials handling is verified by running any notebook from a clean environment with only the documented variables set.
 - A change to the compose stack or jupyter image is verified with `docker compose config` and a full notebook execution inside the jupyter service.
-- Every level is verified by confirming its flag evidence appears in the trace; levels with a fix are verified by confirming the defect reproduces before the fix and disappears after it, with the trace showing the difference.
-- `make_claim_table.py` refuses to run when its answers do not match the hashes in `game.py`; run it after any flag change.
+- Every mission is verified by doing its Langfuse action and seeing its check turn ✅; missions with a fix are verified by confirming the defect reproduces before the fix and disappears after it, with the trace showing the difference.
 - CI, if added, runs notebook execution only; it cannot assert on trace content unless it talks to a Langfuse project.
 
 ## Documentation
 
-`README.md` is the participant guide: setup, keys, activity order, what to look for in Langfuse, and how to submit findings. It MUST stay consistent with the notebooks' activity numbering and with this file's agenda table. Update it in the same change as any activity rename, reorder, or added prerequisite.
+`README.md` is the participant guide: setup, keys, activity order, what to look for in Langfuse, and how the missions and checks work. It MUST stay consistent with the notebooks' activity numbering and with this file's agenda table. Update it in the same change as any activity rename, reorder, or added prerequisite.
 
 Mentor-facing notes, when they exist, live in the README or a single `MENTORS.md`; do not scatter run instructions across files.
 
