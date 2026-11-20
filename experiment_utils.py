@@ -357,60 +357,121 @@ def activity_tags(activity, level, variant):
     return [f"activity-{activity}", f"l{level}", variant]
 
 
-def run_rag(customer_message, flight, variant, *, level=1, query=LOG_QUERY, top_k=1, send_all=False):
-    trace_name = f"activity-1-rag-l{level}-{variant}"
-    if send_all:
-        label = "the whole log sent"
-        items = search_log(query, top_k=len(CORPUS["lost_and_found"]))
-        search_filter = None
-    else:
-        label = "every flight" if flight is None else f"flight {flight} only"
-        if top_k > 1:
-            label += f", top {top_k} results"
-        items = search_log(query, flight, top_k=top_k)
-        search_filter = {"flight": flight} if flight else None
+CUSTOMER_MESSAGE = (
+    "Hi, Gus here, flight SK101. Did anyone find my bag of fresh-caught fish? "
+    "And my lucky fishing hat? Both very important and slightly urgent."
+)
+GUS_FLIGHT = "SK101"
+RAG_CONFIG = {"flight_filter": bool, "top_k": int}
+
+
+def _rag_trace(trace_name, prompt, items, search_input, session_id):
+    """One traced Skye run: the search step, then the answer step linked to the prompt."""
     with langfuse.start_as_current_observation(name=trace_name, as_type="span") as root:
-        with propagate_attributes(
-            session_id=f"activity-1-{RUN_ID}",
-            tags=activity_tags(1, level, variant),
-            trace_name=trace_name,
-        ):
+        with propagate_attributes(session_id=session_id, tags=["activity-1"], trace_name=trace_name):
             with langfuse.start_as_current_observation(
                 name="activity-1-retrieval",
                 as_type="retriever",
-                input={"query": query, "filter": search_filter, "top_k": len(items) if send_all else top_k},
+                input=search_input,
                 output={"count": len(items),
                         "items": [{key: item[key] for key in ("id", "flight", "item", "text")} for item in items]},
-                metadata={"detective_note": "golden-fishhook"},
             ):
                 pass
             entries = "\n".join(f"- {item['text']}" for item in items)
-            messages = [
-                {"role": "system", "content": "You are Skye, Skyline Travel's assistant. The search returns the items found for this customer: tell them cheerfully what we found for them, using the lost-and-found entries."},
-                {"role": "user", "content": f"{customer_message}\n\nLost-and-found entries:\n{entries}"},
-            ]
-            started = time.time()
-            response = client.chat.completions.create(
-                model=MODEL, messages=messages, temperature=0, max_tokens=800,
-                name="activity-1-generation",
+            client.chat.completions.create(
+                model=MODEL, temperature=0, max_tokens=800, name="activity-1-generation",
+                langfuse_prompt=prompt,
+                messages=[
+                    {"role": "system", "content": prompt.prompt},
+                    {"role": "user", "content": f"{CUSTOMER_MESSAGE}\n\nLost-and-found entries:\n{entries}"},
+                ],
             )
-            latency = time.time() - started
-            answer = response.choices[0].message.content
             trace_id = langfuse.get_current_trace_id()
-            root.update(output={"answer": answer})
-    usage = response.usage
-    return {
-        "variant": variant,
-        "level": level,
-        "label": label,
-        "answer": answer,
-        "items": items,
-        "input_tokens": getattr(usage, "prompt_tokens", None),
-        "output_tokens": getattr(usage, "completion_tokens", None),
-        "latency": latency,
-        "trace_id": trace_id,
-        "trace_url": record_trace(f"activity-1-l{level}-{variant}", trace_id),
-    }
+            record_facts(root, {"flight_filter": search_input["filter"] is not None,
+                                "top_k": search_input["top_k"],
+                                "item_ids": [item["id"] for item in items]}, prompt)
+    return trace_id
+
+
+def run_rag():
+    """Skye searches the lost-and-found log with the settings from prompt skye-lost-and-found."""
+    loaded = load_prompt("skye-lost-and-found", RAG_CONFIG)
+    if loaded is None:
+        return
+    prompt, config = loaded
+    flight = GUS_FLIGHT if config["flight_filter"] else None
+    items = search_log(LOG_QUERY, flight, top_k=config["top_k"])
+    search_input = {"query": LOG_QUERY, "filter": {"flight": flight} if flight else None, "top_k": config["top_k"]}
+    trace_id = _rag_trace("activity-1-rag", prompt, items, search_input, f"activity-1-{RUN_ID}")
+    announce("🛫 Skye answered Gus.", trace_id)
+
+
+def run_send_all():
+    """A colleague's 'safe' idea next to a filtered run, in one session: paste the whole log every time."""
+    loaded = load_prompt("skye-lost-and-found", RAG_CONFIG)
+    if loaded is None:
+        return
+    prompt, _ = loaded
+    session_id = f"activity-1-send-all-{RUN_ID}-{uuid.uuid4().hex[:4]}"
+    items = search_log(LOG_QUERY, GUS_FLIGHT, top_k=3)
+    _rag_trace("activity-1-rag-filtered", prompt, items,
+               {"query": LOG_QUERY, "filter": {"flight": GUS_FLIGHT}, "top_k": 3}, session_id)
+    every = CORPUS["lost_and_found"]
+    trace_id = _rag_trace("activity-1-rag-send-all", prompt, every,
+                          {"query": None, "filter": None, "top_k": len(every)}, session_id)
+    announce(f"🧾 Two runs in session {session_id}. One of them was expensive.", trace_id)
+
+
+def _check_1_1():
+    return has_comment("activity-1-rag", "activity-1-generation"), (
+        "Open the answer step (activity-1-generation) in the trace tree and leave a comment on it.")
+
+
+def _check_1_2():
+    if not has_comment("activity-1-rag", "activity-1-retrieval"):
+        if has_comment("activity-1-rag", "activity-1-generation"):
+            return False, ("Your comment is on the answer step. Skye only repeated what it was handed: "
+                           "the rooster got in earlier. Which step handed it over?")
+        return False, "Leave a comment on the step that brought the rooster in."
+    facts = latest_facts("activity-1-rag")
+    ids = facts.get("item_ids") or []
+    fixed = facts.get("flight_filter") is True and "lf-fish-bag-sk101" in ids and "lf-rooster-sk205" not in ids
+    if fixed:
+        return True, ""
+    return False, (stale_label_nudge("skye-lost-and-found", facts)
+                   or "Comment found 👍 Now stop the rooster at the source: the config of prompt "
+                      "skye-lost-and-found decides whether the search looks at Gus's flight only. Then rerun.")
+
+
+def _check_1_3():
+    facts = latest_facts("activity-1-rag")
+    ids = facts.get("item_ids") or []
+    if facts.get("flight_filter") is True and {"lf-fish-bag-sk101", "lf-fishing-hat-sk101"} <= set(ids):
+        return True, ""
+    return False, (stale_label_nudge("skye-lost-and-found", facts)
+                   or "Skye still never sees the hat. Open the search step: how many items came back, "
+                      "and how many did Gus lose?")
+
+
+def _check_1_4():
+    if has_comment("activity-1-rag-send-all", None):
+        return True, ""
+    if has_comment("activity-1-rag-send-all", "activity-1-retrieval") or has_comment(
+            "activity-1-rag-send-all", "activity-1-generation"):
+        return False, "That comment is on a step. This one goes on the whole trace (the comment button at the top of the trace)."
+    return False, "Find the most expensive trace of the session and leave a comment on the trace itself."
+
+
+MISSIONS.update({
+    "1.1": {"activity": 1, "title": "Meet the trace", "check": _check_1_1,
+            "solved": "You read Skye's mind. It smells of fish."},
+    "1.2": {"activity": 1, "title": "Where did the rooster come from?", "check": _check_1_2,
+            "solved": "The rooster is back on flight SK205, where it belongs. It is not happy about it."},
+    "1.3": {"activity": 1, "title": "The hat nobody saw", "check": _check_1_3,
+            "solved": "Fish and hat reunited. Gus is weeping into the hat."},
+    "1.4": {"activity": 1, "title": "The expensive colleague", "check": _check_1_4,
+            "solved": "Caught. Sending the whole log every time is safe the way a fish in your carry-on is safe."},
+})
 
 
 def _ask(system, request, name):
@@ -730,14 +791,6 @@ def run_tool_loop(question, variant, *, level=1, lookup):
         "trace_id": trace_id,
         "trace_url": record_trace(f"activity-4-l{level}-{variant}", trace_id),
     }
-
-
-def show_rag_results(runs):
-    for run in runs:
-        print(f"\n🔎 {run['label']}")
-        print(f"  answer: {run['answer']}")
-        print(f"  tokens: {run['input_tokens']} in / {run['output_tokens']} out · latency: {run['latency']:.1f}s")
-        print(f"  activity log: {run['trace_url']}")
 
 
 def show_format_results(runs):
