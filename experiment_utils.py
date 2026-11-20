@@ -51,9 +51,11 @@ _CORPUS_PATH = Path(__file__).resolve().parent / "data" / "travel_corpus.json"
 with _CORPUS_PATH.open(encoding="utf-8") as _corpus_file:
     CORPUS = json.load(_corpus_file)
 
-BOOKINGS = CORPUS["bookings"]
-REQUESTS = CORPUS["requests"]
-INSTRUCTIONS = CORPUS["instructions"]
+LOST_AND_FOUND = CORPUS["activity_1"]["lost_and_found"]
+REQUESTS = CORPUS["activity_2"]["requests"]
+NOTICES = CORPUS["activity_3"]["notices"]
+INSTRUCTIONS = CORPUS["activity_3"]["instructions"]
+BOOKINGS = CORPUS["activity_4"]["bookings"]
 def trace_url(trace_id):
     url = langfuse.get_trace_url(trace_id=trace_id) or trace_id
     return url.replace("://langfuse:3000", "://localhost:3000")
@@ -300,7 +302,7 @@ def _rank(query, records, top_k):
 
 def search_log(query, flight=None, *, top_k=1):
     """Search the lost-and-found log, optionally only one flight's items."""
-    entries = CORPUS["lost_and_found"]
+    entries = LOST_AND_FOUND
     if flight is not None:
         entries = [entry for entry in entries if entry["flight"] == flight]
     return _rank(query, entries, top_k)
@@ -407,7 +409,7 @@ def run_send_all():
     items = search_log(LOG_QUERY, GUS_FLIGHT, top_k=3)
     _rag_trace("activity-1-rag-filtered", prompt, items,
                {"query": LOG_QUERY, "filter": {"flight": GUS_FLIGHT}, "top_k": 3}, session_id)
-    every = CORPUS["lost_and_found"]
+    every = LOST_AND_FOUND
     trace_id = _rag_trace("activity-1-rag-send-all", prompt, every,
                           {"query": None, "filter": None, "top_k": len(every)}, session_id)
     announce(f"🧾 Two runs in session {session_id}. One of them was expensive.", trace_id, "activity-1-rag-send-all")
@@ -422,15 +424,15 @@ def _check_1_2():
     if not has_comment("activity-1-rag", "activity-1-retrieval"):
         if has_comment("activity-1-rag", "activity-1-generation"):
             return False, ("Your comment is on the answer step. Skye only repeated what it was handed: "
-                           "the rooster got in earlier. Which step handed it over?")
-        return False, "Leave a comment on the step that brought the rooster in."
+                           "the dolphin got in earlier. Which step handed it over?")
+        return False, "Leave a comment on the step that brought the dolphin in."
     facts = latest_facts("activity-1-rag")
     ids = facts.get("item_ids") or []
-    fixed = facts.get("flight_filter") is True and "lf-fish-bag-sk101" in ids and "lf-rooster-sk205" not in ids
+    fixed = facts.get("flight_filter") is True and "lf-fish-bag-sk101" in ids and "lf-dolphin-sk205" not in ids
     if fixed:
         return True, ""
     return False, (stale_label_nudge("skye-lost-and-found", facts)
-                   or "Comment found 👍 Now stop the rooster at the source: the config of prompt "
+                   or "Comment found 👍 Now stop the dolphin at the source: the config of prompt "
                       "skye-lost-and-found decides whether the search looks at Gus's flight only. Then rerun.")
 
 
@@ -458,8 +460,8 @@ def _check_1_4():
 MISSIONS.update({
     "1.1": {"activity": 1, "title": "Meet the trace", "check": _check_1_1,
             "solved": "You read Skye's mind. It smells of fish."},
-    "1.2": {"activity": 1, "title": "Where did the rooster come from?", "check": _check_1_2,
-            "solved": "The rooster is back on flight SK205, where it belongs. It is not happy about it."},
+    "1.2": {"activity": 1, "title": "Who invited the dolphin?", "check": _check_1_2,
+            "solved": "Finnegan is back on flight SK205. He splashed the pilot on the way."},
     "1.3": {"activity": 1, "title": "The hat nobody saw", "check": _check_1_3,
             "solved": "Fish and hat reunited. Gus is weeping into the hat."},
     "1.4": {"activity": 1, "title": "The expensive colleague", "check": _check_1_4,
@@ -558,7 +560,7 @@ RULE_QUESTIONS = [
 
 def search_notices(query, *, top_k=1, active_only=True):
     """Search the animals-on-board and other notices, by default only the current ones."""
-    notices = CORPUS["notices"]
+    notices = NOTICES
     if active_only:
         notices = [notice for notice in notices if notice["status"] == "active"]
     return _rank(query, notices, top_k)
