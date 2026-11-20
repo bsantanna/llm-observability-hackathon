@@ -462,6 +462,16 @@ def batch_passes(number, valid, parsed, reason_code):
     return reason_code == "OK"
 
 
+LAST_ANSWER_USAGE = {"reasoning": 0, "answer": 0}  # tokens of the latest Activity 1 answer
+
+
+def _remember_usage(response):
+    usage = response.usage
+    details = getattr(usage, "completion_tokens_details", None)
+    reasoning = (getattr(details, "reasoning_tokens", None) or 0) if details else 0
+    LAST_ANSWER_USAGE.update(reasoning=reasoning, answer=max(usage.completion_tokens - reasoning, 0))
+
+
 def _rag_trace(trace_name, prompt, items, search_input, session_id, *, message=CUSTOMER_MESSAGE,
                system=None, max_tokens=800, slow_seconds=0, search=True, extra_facts=None):
     """One traced Skye run: the search step, then the answer step linked to the prompt.
@@ -490,7 +500,7 @@ def _rag_trace(trace_name, prompt, items, search_input, session_id, *, message=C
                 ) as step:
                     time.sleep(slow_seconds)
                     step.update(output={"desk": "still checking..."})
-            client.chat.completions.create(
+            response = client.chat.completions.create(
                 model=MODEL, temperature=0, max_tokens=max_tokens, name="activity-1-generation",
                 langfuse_prompt=prompt,
                 messages=[
@@ -498,6 +508,7 @@ def _rag_trace(trace_name, prompt, items, search_input, session_id, *, message=C
                     {"role": "user", "content": user},
                 ],
             )
+            _remember_usage(response)
             trace_id = langfuse.get_current_trace_id()
             record_facts(root, {"flight_filter": bool(search and search_input["filter"] is not None),
                                 "top_k": search_input["top_k"] if search else 0,
@@ -563,21 +574,25 @@ MISSIONS.update({
 
 
 GUS_DUEL_SYSTEM = (
-    "You are Skye, Skyline Travel's assistant. Answer Gus kindly and only with what the "
-    "lost-and-found entries say. The lost-and-found desk is at Gate 12, next to the giant pretzel. "
-    "The way from Gate 3: walk past the coffee shop, take the escalator down, turn left at the "
-    "giant pretzel, and the desk is on the right."
+    "You are Skye, Skyline Travel's assistant. Answer Gus kindly and briefly. About his lost "
+    "things, say only what the lost-and-found entries say. Airport facts you may use: the "
+    "lost-and-found desk is at Gate 12, next to the giant pretzel. The way from Gate 3: walk past "
+    "the coffee shop, take the escalator down, turn left at the giant pretzel, and the desk is on "
+    "the right."
 )
 DUEL_STEPS[1] = ("activity-1-retrieval", "activity-1-generation", "double-check-with-desk")
 
 
 def _gus_duel(mission, option, overrides, session_id):
     """One option of an Activity 1 duel: Gus's flight-only search unless the option says otherwise."""
-    row, settings = DUELS[mission], dict(overrides)
+    row, settings = DUELS[mission], {"max_tokens": 1500, **overrides}  # room for a thinking model
     prompt, system = None, GUS_DUEL_SYSTEM
     if row.get("prompts"):
         prompt = langfuse.get_prompt(f"duel-{mission}", label=f"option-{option}", cache_ttl_seconds=0)
         system = None
+    if settings.get("max_tokens") == "cut":
+        # Just enough tokens for the thinking and a third of the answer the other option gave.
+        settings["max_tokens"] = LAST_ANSWER_USAGE["reasoning"] + max(LAST_ANSWER_USAGE["answer"] // 3, 5)
     search = settings.pop("search", True)
     if search == "whole_log":
         items, search_input, search = LOST_AND_FOUND, {"query": None, "filter": None, "top_k": len(LOST_AND_FOUND)}, True
@@ -600,6 +615,44 @@ DUELS.update({
             "hint": "Show the Tokens and Cost columns in Tracing → Traces. Both runs found Big Bertha. "
                     "Which one cost more?",
             "solved": "Same answer, way fewer tokens. Gus's wallet says thank you."},
+    "1.5": {"activity": 1, "title": "The desk closes in 10 minutes", "winner": "b",
+            "status": "🥊 Two Skyes told Gus where the desk is. Only one keeps the job.",
+            "message": "HOLY MOLY! The lost-and-found desk closes in 10 minutes! Where is it? "
+                       "I'm running! Well... walking very fast. Like a fish on a bicycle.",
+            "options": {"a": {"slow_seconds": 6, "search": False}, "b": {"search": False}}, "prompts": None,
+            "hint": "Open the Timeline of both runs. Gus has 10 minutes. Which Skye made him wait?",
+            "solved": "Gus made it with 3 minutes to spare. He did a little victory dance."},
+    "1.6": {"activity": 1, "title": "Directions to the desk", "winner": "a",
+            "status": "🥊 Two Skyes gave Gus directions. Only one keeps the job.",
+            "message": "I'm at Gate 3. How do I get to the lost-and-found desk? Step by step, please, "
+                       "and tell me what I will see at every step. I once got lost on my own boat.",
+            "options": {"a": {"search": False}, "b": {"search": False, "max_tokens": "cut"}}, "prompts": None,
+            "hint": "Read the end of both answers. Did one of them stop in the middle?",
+            "solved": "Gus followed every step and only walked into one door."},
+    "1.7": {"activity": 1, "title": "Is Big Bertha still fresh?", "winner": "b",
+            "status": "🥊 Two Skyes checked on Big Bertha. Only one keeps the job.",
+            "message": "Is Big Bertha still fresh?? She has been in that bag since 6 in the morning! "
+                       "Please tell me the truth. I can take it. Maybe.",
+            "options": {"a": {"search": False}, "b": {"query": "fish ice fresh warm", "top_k": 2}},
+            "prompts": {
+                "a": "You are Skye, Skyline Travel's assistant. Never say you don't know. Always sound "
+                     "100% sure, even when you have no facts. Customers love a confident answer.",
+                "b": "You are Skye, Skyline Travel's assistant. Answer only with what the lost-and-found "
+                     "entries say. If they don't say it, tell the customer you don't know.",
+            },
+            "hint": "Does each run have a search step? Where did each answer get its facts?",
+            "solved": "Bad news, told kindly: Big Bertha is warm. Gus is already planning her a nice dinner."},
+    "1.8": {"activity": 1, "title": "HOLY MOLY, in Norwegian", "winner": "a",
+            "status": "🥊 Two Skyes answered Gus in Norwegian... or did they? Only one keeps the job.",
+            "message": "HOLY MOLY! Hei Skye! Har dere funnet fiskeposen min? Big Bertha er der inne! "
+                       "Og fiskehatten min?",
+            "options": {"a": {}, "b": {}},
+            "prompts": {
+                "a": GUS_DUEL_SYSTEM + " Answer in the customer's language.",
+                "b": GUS_DUEL_SYSTEM + " Answer in English.",
+            },
+            "hint": "Click the prompt version on each answer step and read it. Which language did Gus write in?",
+            "solved": "Gus understood every word. He says 'tusen takk', which means 'thanks a thousand'."},
 })
 _register_duels(1)
 
