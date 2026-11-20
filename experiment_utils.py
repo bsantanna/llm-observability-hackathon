@@ -550,10 +550,6 @@ FARMER_QUESTION = (
     "Farmer Barnaby here. I am flying with Sir Crowsalot, my rooster, so he can wake me at dawn "
     "when we land. Can he sit with me in the cabin?"
 )
-FAITHFUL_INSTRUCTIONS = (
-    "You are Skye, Skyline Travel's assistant. Answer using only the retrieved notice. "
-    "If it conflicts with your assumptions, follow the notice."
-)
 RULE_QUESTIONS = [
     ("where", "Where on the plane will my rooster travel? He is a very good boy.", "rooster travel cabin hold fee"),
     ("fee", "What do I pay to bring my rooster along?", "rooster travel cabin hold fee"),
@@ -577,103 +573,81 @@ def rule_passes(topic, answer):
     raise ValueError(f"unknown topic {topic}")
 
 
-def _notice_answer(system_prompt, question, query, active_only, step_name, *, top_k=1, show_status=False):
-    docs = search_notices(query, top_k=top_k, active_only=active_only)
-    doc = docs[0]
-    with langfuse.start_as_current_observation(
-        name="activity-3-retrieval",
-        as_type="retriever",
-        input={"query": query, "filter": {"active_only": active_only}, "top_k": top_k},
-        output={"doc_id": doc["id"], "status": doc["status"], "effective_to": doc["effective_to"],
-                "title": doc["title"], "text": doc["text"],
-                "docs": [{key: item[key] for key in ("id", "status", "effective_to", "text")} for item in docs]},
-    ):
-        pass
-    if show_status:
-        policies = "\n".join(
-            f"- [status: {item['status']}"
-            + (f", valid until {item['effective_to']}" if item["effective_to"] else "")
-            + f"] {item['text']}"
-            for item in docs
+def _notice_step(step_name, prompt, question, query, active_only):
+    """One question: search the notices, then answer with the prompt skye-animals."""
+    with langfuse.start_as_current_observation(name=step_name, as_type="span", input={"question": question}) as step:
+        doc = search_notices(query, top_k=1, active_only=active_only)[0]
+        with langfuse.start_as_current_observation(
+            name="activity-3-retrieval",
+            as_type="retriever",
+            input={"query": query, "filter": {"active_only": active_only}, "top_k": 1},
+            output={"doc_id": doc["id"], "status": doc["status"], "effective_to": doc["effective_to"],
+                    "title": doc["title"], "text": doc["text"]},
+        ):
+            pass
+        response = client.chat.completions.create(
+            model=MODEL, temperature=0, max_tokens=800, name="activity-3-generation", langfuse_prompt=prompt,
+            messages=[{"role": "system", "content": prompt.prompt},
+                      {"role": "user", "content": f"{question}\n\nRetrieved notice:\n{doc['text']}"}],
         )
-    else:
-        policies = "\n".join(item["text"] for item in docs)
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": f"{question}\n\nRetrieved notice:\n{policies}"},
-    ]
-    started = time.time()
-    response = client.chat.completions.create(
-        model=MODEL, messages=messages, temperature=0, max_tokens=800, name=step_name,
-    )
-    return doc, response, time.time() - started
+        answer = response.choices[0].message.content
+        step.update(output={"answer": answer})
+    return doc, answer
 
 
-def run_hallucination(system_prompt, variant, *, level=1, active_only=True):
-    if system_prompt is None:
-        system_prompt = INSTRUCTIONS["case-3-broken"]
-    trace_name = f"activity-3-hallucination-l{level}-{variant}"
-    with langfuse.start_as_current_observation(name=trace_name, as_type="span") as root:
-        with propagate_attributes(
-            session_id=f"activity-3-{RUN_ID}",
-            tags=activity_tags(3, level, variant),
-            trace_name=trace_name,
-        ):
-            doc, response, latency = _notice_answer(
-                system_prompt, FARMER_QUESTION, NOTICE_QUERY, active_only, "activity-3-generation"
-            )
-            answer = response.choices[0].message.content
-            trace_id = langfuse.get_current_trace_id()
-            root.update(output={"answer": answer})
-    usage = response.usage
-    return {
-        "variant": variant,
-        "level": level,
-        "label": variant,
-        "answer": answer,
-        "doc": doc,
-        "input_tokens": getattr(usage, "prompt_tokens", None),
-        "output_tokens": getattr(usage, "completion_tokens", None),
-        "latency": latency,
-        "trace_id": trace_id,
-        "trace_url": record_trace(f"activity-3-l{level}-{variant}", trace_id),
-    }
-
-
-def run_rule_check(system_prompt):
-    """The base instructions from Level 1 are always sent first; the team's instructions follow."""
-    trace_name = "activity-3-hallucination-l3-rules"
-    instructions = INSTRUCTIONS["case-3-broken"] + "\n\n" + system_prompt
-    results = []
-    with langfuse.start_as_current_observation(name=trace_name, as_type="span") as root:
-        with propagate_attributes(
-            session_id=f"activity-3-{RUN_ID}",
-            tags=activity_tags(3, 3, "rules"),
-            trace_name=trace_name,
-        ):
+def run_animals():
+    """Barnaby asks about his rooster, then two follow-up questions with code-checkable answers."""
+    loaded = load_prompt("skye-animals", {"current_notices_only": bool})
+    if loaded is None:
+        return
+    prompt, config = loaded
+    active_only = config["current_notices_only"]
+    with langfuse.start_as_current_observation(name="activity-3-animals", as_type="span") as root:
+        with propagate_attributes(session_id=f"activity-3-{RUN_ID}", tags=["activity-3"], trace_name="activity-3-animals"):
+            docs = [_notice_step("question-farmer", prompt, FARMER_QUESTION, NOTICE_QUERY, active_only)[0]]
+            rules_passed = 0
             for topic, question, query in RULE_QUESTIONS:
-                with langfuse.start_as_current_observation(
-                    name=f"rule-check-{topic}", as_type="span", input={"question": question}
-                ) as step:
-                    _, response, _ = _notice_answer(
-                        instructions, question, query, False, "activity-3-generation", top_k=2, show_status=True
-                    )
-                    answer = response.choices[0].message.content
-                    passed = rule_passes(topic, answer)
-                    step.update(output={"answer": answer, "matches_notice": passed})
-                results.append({"topic": topic, "question": question, "answer": answer, "passed": passed})
-            passed = sum(result["passed"] for result in results)
+                doc, answer = _notice_step(f"rule-check-{topic}", prompt, question, query, active_only)
+                docs.append(doc)
+                rules_passed += rule_passes(topic, answer)
             trace_id = langfuse.get_current_trace_id()
-            root.update(output={"matches_notice": passed, "of": len(results)})
-    return {
-        "variant": "rules",
-        "level": 3,
-        "label": f"rule check, {passed} of {len(results)} match the notice",
-        "passed": passed,
-        "results": results,
-        "trace_id": trace_id,
-        "trace_url": record_trace("activity-3-l3-rules", trace_id),
-    }
+            record_facts(root, {
+                "retired_notice_used": any(doc["status"] != "active" for doc in docs),
+                "hidden_rule_present": "farm animals always" in prompt.prompt.lower(),
+                "rules_passed": rules_passed,
+            }, prompt)
+    announce("🐓 Skye answered Barnaby about his rooster.", trace_id)
+
+
+def _check_3_1():
+    facts = latest_facts("activity-3-animals")
+    if facts.get("prompt_version", 1) > 1 and facts.get("hidden_rule_present") is False:
+        return True, ""
+    return False, (stale_label_nudge("skye-animals", facts)
+                   or "Skye still follows a secret rule. Open the answer step, follow its link to the prompt, "
+                      "and read every sentence.")
+
+
+def _check_3_2():
+    commented = has_comment("activity-3-animals", "activity-3-retrieval")
+    facts = latest_facts("activity-3-animals")
+    if commented and facts.get("retired_notice_used") is False and facts.get("rules_passed") == len(RULE_QUESTIONS):
+        return True, ""
+    if not commented:
+        return False, "Skye was faithful to the notice it got. Comment on the step that handed over the wrong notice."
+    if facts.get("retired_notice_used") is not False:
+        return False, (stale_label_nudge("skye-animals", facts)
+                       or "Comment found 👍 The search still hands over a retired notice. Look at the config of skye-animals.")
+    return False, (f"Old notice gone. {facts.get('rules_passed', 0)} of {len(RULE_QUESTIONS)} follow-up answers match "
+                   "the current notice: open the rule-check steps and read Skye's answers.")
+
+
+MISSIONS.update({
+    "3.1": {"activity": 3, "title": "The hidden instruction", "check": _check_3_1,
+            "solved": "The Head of Poultry Relations has been asked to stop writing prompts."},
+    "3.2": {"activity": 3, "title": "The retired notice", "check": _check_3_2,
+            "solved": "The rooster flies in the hold. The cabin sleeps until landing."},
+})
 
 
 def get_booking_l1(**kwargs):
@@ -777,23 +751,6 @@ def run_tool_loop(question, variant, *, level=1, lookup):
         "trace_id": trace_id,
         "trace_url": record_trace(f"activity-4-l{level}-{variant}", trace_id),
     }
-
-
-def show_hallucination_results(runs):
-    for run in runs:
-        print(f"\n▶ {run['label']}")
-        print(f"  answer: {run['answer']}")
-        print(f"  activity log: {run['trace_url']}")
-
-
-def show_rule_results(check):
-    print(f"\n🐓 {check['passed']} of {len(check['results'])} answers match the notice")
-    for result in check["results"]:
-        print(f"  {'✅' if result['passed'] else '❌'} {result['question']}")
-        print(f"     {result['answer']}")
-    print(f"  activity log: {check['trace_url']}")
-    if check["passed"] == len(check["results"]):
-        print("\n🏆 Skye said no to the rooster. Flag: quiet-flight")
 
 
 def show_tool_results(runs):
