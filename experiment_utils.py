@@ -301,11 +301,6 @@ def search_log(query, flight=None, *, top_k=1):
 
 
 BOOKING_FIELDS = ("origin", "destination", "travel_date", "passengers", "cabin")
-STRUCTURED_INSTRUCTIONS = (
-    "Return ONLY a JSON object with exactly these keys: origin, destination, travel_date, "
-    "passengers, cabin. travel_date must be YYYY-MM-DD; passengers must be an integer; "
-    "cabin must be economy or premium. No prose and no markdown fences."
-)
 CLARIFICATION_EXPECTED = {2: "travel_date", 3: "cabin"}
 
 
@@ -345,7 +340,7 @@ def validate_booking_request(text, *, allow_clarification=False):
 
 
 def batch_passes(number, valid, parsed, reason_code):
-    """Clue 2-3 rule: requests 2 and 3 must ask for the right missing detail, request 1 must book."""
+    """Mission 2.2 rule: requests 2 and 3 must ask for the right missing detail, request 1 must book."""
     if not valid:
         return False
     if number in CLARIFICATION_EXPECTED:
@@ -474,89 +469,80 @@ MISSIONS.update({
 })
 
 
-def _ask(system, request, name):
-    messages = [{"role": "system", "content": system}, {"role": "user", "content": request}]
-    started = time.time()
+def _booking_system(answer):
+    """The booking system as its own step: it accepts only a structured booking (or a question back)."""
+    with langfuse.start_as_current_observation(name="booking-system", as_type="span", input={"answer": answer}) as step:
+        valid, parsed, reason, reason_code = validate_booking_request(answer, allow_clarification=True)
+        step.update(output={"valid": valid, "reason_code": reason_code, "reason": reason, "parsed": parsed},
+                    level="DEFAULT" if valid else "WARNING")
+    return valid, parsed, reason_code
+
+
+def _format_answer(prompt, request):
     response = client.chat.completions.create(
-        model=MODEL, messages=messages, temperature=0, max_tokens=300, name=name,
+        model=MODEL, temperature=0, max_tokens=300, name="activity-2-generation", langfuse_prompt=prompt,
+        messages=[{"role": "system", "content": prompt.prompt}, {"role": "user", "content": request}],
     )
-    return response, time.time() - started
+    return response.choices[0].message.content
 
 
-def run_format(variant):
-    trace_name = f"activity-2-output-l1-{variant}"
-    label = "free text" if variant == "unconstrained" else "structured"
-    system = (
-        "Summarize the customer's booking request in one sentence."
-        if variant == "unconstrained"
-        else STRUCTURED_INSTRUCTIONS
-    )
-    with langfuse.start_as_current_observation(name=trace_name, as_type="span") as root:
-        with propagate_attributes(
-            session_id=f"activity-2-{RUN_ID}",
-            tags=activity_tags(2, 1, variant),
-            trace_name=trace_name,
-        ):
-            response, latency = _ask(system, REQUESTS[0], "activity-2-generation")
-            answer = response.choices[0].message.content
-            valid, parsed, reason, reason_code = validate_booking_request(answer)
+def run_format():
+    """Skye turns the influencer's first request into a booking, with the prompt skye-booking-format."""
+    loaded = load_prompt("skye-booking-format", {})
+    if loaded is None:
+        return
+    prompt, _ = loaded
+    with langfuse.start_as_current_observation(name="activity-2-format", as_type="span") as root:
+        with propagate_attributes(session_id=f"activity-2-{RUN_ID}", tags=["activity-2"], trace_name="activity-2-format"):
+            valid, _, reason_code = _booking_system(_format_answer(prompt, REQUESTS[0]))
             trace_id = langfuse.get_current_trace_id()
-            root.update(output={"valid": valid, "reason": reason, "reason_code": reason_code, "parsed": parsed})
-    usage = response.usage
-    return {
-        "variant": variant,
-        "level": 1,
-        "label": label,
-        "answer": answer,
-        "valid": valid,
-        "parsed": parsed,
-        "reason": reason,
-        "reason_code": reason_code,
-        "input_tokens": getattr(usage, "prompt_tokens", None),
-        "output_tokens": getattr(usage, "completion_tokens", None),
-        "latency": latency,
-        "trace_id": trace_id,
-        "trace_url": record_trace(f"activity-2-l1-{variant}", trace_id),
-    }
+            record_facts(root, {"valid": valid, "reason_code": reason_code}, prompt)
+    announce("📸 Skye sent Coco's booking to the booking system.", trace_id)
 
 
-def run_format_batch(instructions, level):
-    trace_name = f"activity-2-output-l{level}-batch"
-    allow_clarification = level >= 3
-    results = []
-    with langfuse.start_as_current_observation(
-        name=trace_name, as_type="span", input={"instructions": instructions}
-    ) as root:
-        with propagate_attributes(
-            session_id=f"activity-2-{RUN_ID}",
-            tags=activity_tags(2, level, "batch"),
-            trace_name=trace_name,
-        ):
+def run_format_batch():
+    """All three of Coco's requests, each as its own step with its own booking-system check."""
+    loaded = load_prompt("skye-booking-format", {})
+    if loaded is None:
+        return
+    prompt, _ = loaded
+    usable = 0
+    with langfuse.start_as_current_observation(name="activity-2-format-batch", as_type="span") as root:
+        with propagate_attributes(session_id=f"activity-2-{RUN_ID}", tags=["activity-2"],
+                                  trace_name="activity-2-format-batch"):
             for number, request in enumerate(REQUESTS, start=1):
                 with langfuse.start_as_current_observation(
                     name=f"request-{number}", as_type="span", input={"request": request}
                 ) as step:
-                    response, _ = _ask(instructions, request, "activity-2-generation")
-                    answer = response.choices[0].message.content
-                    valid, parsed, reason, reason_code = validate_booking_request(
-                        answer, allow_clarification=allow_clarification
-                    )
-                    usable = batch_passes(number, valid, parsed, reason_code) if allow_clarification else valid
-                    step.update(output={"request": request, "valid": valid, "reason_code": reason_code,
-                                        "reason": reason, "parsed": parsed, "usable": usable})
-                results.append({"number": number, "request": request, "answer": answer, "usable": usable})
-            passed = sum(result["usable"] for result in results)
+                    valid, parsed, reason_code = _booking_system(_format_answer(prompt, request))
+                    ok = batch_passes(number, valid, parsed, reason_code)
+                    step.update(output={"usable": ok}, level="DEFAULT" if ok else "WARNING")
+                usable += ok
             trace_id = langfuse.get_current_trace_id()
-            root.update(output={"usable": passed, "of": len(results)})
-    return {
-        "variant": "batch",
-        "level": level,
-        "label": f"{len(results)} requests, {passed} usable",
-        "passed": passed,
-        "results": results,
-        "trace_id": trace_id,
-        "trace_url": record_trace(f"activity-2-l{level}-batch", trace_id),
-    }
+            record_facts(root, {"usable": usable}, prompt)
+    announce("📨 Skye sent Coco's three requests to the booking system.", trace_id)
+
+
+def _check_2_1():
+    return has_comment("activity-2-format", "booking-system"), (
+        "Find the step where the booking system said no, read its Output, and comment on that step.")
+
+
+def _check_2_2():
+    facts = latest_facts("activity-2-format-batch")
+    if facts.get("usable") == len(REQUESTS):
+        return True, ""
+    return False, (stale_label_nudge("skye-booking-format", facts)
+                   or f"{facts.get('usable', 0)} of {len(REQUESTS)} requests usable. Open the request steps that "
+                      "are marked as warnings and read what the booking system said.")
+
+
+MISSIONS.update({
+    "2.1": {"activity": 2, "title": "The booking system says no", "check": _check_2_1,
+            "solved": "You speak booking system now. It mostly says no."},
+    "2.2": {"activity": 2, "title": "Three messy requests", "check": _check_2_2,
+            "solved": "Three for three. The cockpit stays a selfie-free zone."},
+})
 
 
 NOTICE_QUERY = "rooster bird cabin seat"
@@ -791,24 +777,6 @@ def run_tool_loop(question, variant, *, level=1, lookup):
         "trace_id": trace_id,
         "trace_url": record_trace(f"activity-4-l{level}-{variant}", trace_id),
     }
-
-
-def show_format_results(runs):
-    for run in runs:
-        print(f"\n▶ {run['label']}")
-        print(f"  answer: {run['answer']}")
-        print(f"  booking system: {'ACCEPTED' if run['valid'] else 'REJECTED'} — {run['reason']}")
-        print(f"  tokens: {run['input_tokens']} in / {run['output_tokens']} out · latency: {run['latency']:.1f}s")
-        print(f"  activity log: {run['trace_url']}")
-
-
-def show_batch_results(batch):
-    print(f"\n📨 {batch['passed']} of {len(batch['results'])} answers usable")
-    for result in batch["results"]:
-        print(f"  {'✅' if result['usable'] else '❌'} request {result['number']}: {result['request']}")
-    print(f"  activity log: {batch['trace_url']}")
-    if batch["level"] >= 3 and batch["passed"] == len(batch["results"]):
-        print("\n🏆 All three usable. Flag: three-for-three")
 
 
 def show_hallucination_results(runs):
