@@ -53,6 +53,7 @@ with _CORPUS_PATH.open(encoding="utf-8") as _corpus_file:
 
 LOST_AND_FOUND = CORPUS["activity_1"]["lost_and_found"]
 REQUESTS = CORPUS["activity_2"]["requests"]
+COCO_BOOKING = CORPUS["activity_2"]["booking"]
 NOTICES = CORPUS["activity_3"]["notices"]
 INSTRUCTIONS = CORPUS["activity_3"]["instructions"]
 BOOKINGS = CORPUS["activity_4"]["bookings"]
@@ -736,6 +737,134 @@ MISSIONS.update({
     "2.2": {"activity": 2, "title": "Three messy requests", "check": _check_2_2,
             "solved": "Three for three. The cockpit stays a selfie-free zone."},
 })
+
+
+def check_packing_list(text):
+    """Baggage system: {"items": [{"name": <text>, "quantity": <whole number ≥ 1>}, ...]}."""
+    match = re.search(r"\{.*\}", text or "", re.S)
+    if not match:
+        return False, "NOT_AN_OBJECT", "the answer is not a structured object"
+    try:
+        parsed = json.loads(match.group(0))
+    except json.JSONDecodeError:
+        return False, "UNREADABLE", "the structured answer could not be read"
+    items = parsed.get("items") if isinstance(parsed, dict) else None
+    if not isinstance(items, list) or not items:
+        return False, "NO_ITEMS", "the packing list needs a non-empty list called items"
+    for item in items:
+        ok = (isinstance(item, dict) and isinstance(item.get("name"), str) and item["name"]
+              and isinstance(item.get("quantity"), int) and not isinstance(item["quantity"], bool)
+              and item["quantity"] >= 1)
+        if not ok:
+            return False, "BAD_ITEM", "every item needs a name and a whole-number quantity of 1 or more"
+    return True, "OK", f"{len(items)} items accepted"
+
+
+CAPTION_LIMIT = 150
+
+
+def check_caption(text):
+    length = len((text or "").strip())
+    if length > CAPTION_LIMIT:
+        return False, "TOO_LONG", f"the caption has {length} characters; the limit is {CAPTION_LIMIT}"
+    return True, "OK", f"{length} characters, within the limit"
+
+
+def check_rating(text):
+    if re.fullmatch(r"[1-5]", (text or "").strip()):
+        return True, "OK", "rating accepted"
+    return False, "NOT_A_NUMBER", "the form accepts one whole number from 1 to 5"
+
+
+def check_privacy(text):
+    if re.search(r"SKY-\d+", text or "", re.I):
+        return False, "BOOKING_CODE_SHOWN", "the reply shows a booking code to everyone watching"
+    return True, "OK", "no private details shown"
+
+
+DUEL_VALIDATORS = {"2.3": ("baggage-system", check_packing_list), "2.4": ("caption-check", check_caption),
+                   "2.5": ("feedback-form", check_rating), "2.6": ("privacy-check", check_privacy)}
+DUEL_STEPS[2] = ("activity-2-generation", "baggage-system", "caption-check", "feedback-form", "privacy-check")
+
+
+def _coco_duel(mission, option, overrides, session_id):
+    """One option of an Activity 2 duel: Skye's answer, then the system that has to accept it."""
+    row, name = DUELS[mission], duel_trace_name(mission, option)
+    prompt = langfuse.get_prompt(f"duel-{mission}", label=f"option-{option}", cache_ttl_seconds=0)
+    with langfuse.start_as_current_observation(name=name, as_type="span") as root:
+        with propagate_attributes(session_id=session_id, tags=["activity-2"], trace_name=name):
+            response = client.chat.completions.create(
+                model=MODEL, temperature=0, max_tokens=1500, name="activity-2-generation", langfuse_prompt=prompt,
+                messages=[{"role": "system", "content": prompt.prompt}, {"role": "user", "content": row["message"]}],
+            )
+            answer = response.choices[0].message.content
+            step_name, validate = DUEL_VALIDATORS[mission]
+            with langfuse.start_as_current_observation(name=step_name, as_type="span", input={"answer": answer}) as step:
+                valid, reason_code, reason = validate(answer)
+                step.update(output={"valid": valid, "reason_code": reason_code, "reason": reason},
+                            level="DEFAULT" if valid else "WARNING")
+            trace_id = langfuse.get_current_trace_id()
+            record_facts(root, {"mission": mission, "option": option, "session_id": session_id,
+                                "valid": valid, "reason_code": reason_code}, prompt)
+    return trace_id
+
+
+SKYE = "You are Skye, Skyline Travel's assistant. "
+DUEL_RUNNERS[2] = _coco_duel
+DUELS.update({
+    "2.3": {"activity": 2, "title": "The packing list", "winner": "a",
+            "status": "🥊 Two Skyes wrote Coco's packing list. Only one keeps the job.",
+            "message": "Bestie!! Packing for Madrid: 1 ring light, 2 tripods, 14 outfits and my lucky selfie "
+                       "stick. Send my packing list to the baggage system pls. Literally urgent, 10/10.",
+            "options": {"a": {}, "b": {}},
+            "prompts": {
+                "a": SKYE + 'Turn the customer\'s packing list into JSON for the baggage system: '
+                     '{"items": [{"name": "<item>", "quantity": <whole number>}]}. Reply with the JSON only.',
+                "b": SKYE + "Write the customer's packing list as a fun bullet list with lots of emojis.",
+            },
+            "hint": "Open the baggage-system step of both runs. Which one did it accept?",
+            "solved": "Packing list accepted! Coco posted a photo of it. 2.4M likes."},
+    "2.4": {"activity": 2, "title": "The caption", "winner": "b",
+            "status": "🥊 Two Skyes wrote Coco's caption. Only one keeps the job.",
+            "message": "Write the caption for my plane selfie, bestie! 2.5M followers are waiting. "
+                       "Make it literally iconic.",
+            "options": {"a": {}, "b": {}},
+            "prompts": {
+                "a": SKYE + "Write a long, heartfelt caption for the customer's post, full of feelings, "
+                     "stories, hashtags and emojis. The longer the better.",
+                "b": SKYE + "Write one caption of at most 150 characters, hashtags included. Reply with the "
+                     "caption only.",
+            },
+            "hint": "Open the caption-check step of both runs. How long is each caption?",
+            "solved": "Caption posted. It fit! Coco rates the caption 10/10."},
+    "2.5": {"activity": 2, "title": "Rate your flight", "winner": "a",
+            "status": "🥊 Two Skyes filled in Coco's feedback form. Only one keeps the job.",
+            "message": "Rate this flight for me on the feedback form! It was literally 11 out of 10. "
+                       "Iconic. The snacks!!",
+            "options": {"a": {}, "b": {}},
+            "prompts": {
+                "a": SKYE + "The feedback form accepts exactly one whole number from 1 to 5. Reply with "
+                     "that number only.",
+                "b": SKYE + "Write the customer's rating in their own words and style, exactly how they "
+                     "would say it.",
+            },
+            "hint": "Open the feedback-form step of both runs. What does the form accept?",
+            "solved": "Form accepted: 5. Coco says 5 is literally the new 11."},
+    "2.6": {"activity": 2, "title": "Going live", "winner": "b",
+            "status": "🥊 Two Skyes wrote Coco's livestream script. Only one keeps the job.",
+            "message": f"Going live to 2.6M followers in 5 minutes!! Write what I should say about my trip. "
+                       f"My booking is {COCO_BOOKING['ref']}, Lisbon to Madrid, 1 December.",
+            "options": {"a": {}, "b": {}},
+            "prompts": {
+                "a": SKYE + "Write a fun livestream script for the customer. Include all the booking details, "
+                     "including the booking code, so followers can follow along.",
+                "b": SKYE + "Write a fun livestream script for the customer. Never show booking codes or "
+                     "other private details.",
+            },
+            "hint": "Open the privacy-check step of both runs. What did 2.6 million people just see?",
+            "solved": "Livestream done, booking code safe. 2.7M followers and zero strangers changing her seat."},
+})
+_register_duels(2)
 
 
 NOTICE_QUERY = "rooster bird cabin seat"

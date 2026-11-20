@@ -21,7 +21,8 @@
       "Book 1 passenger from Lisbon to Madrid on 2026-12-01, economy. I will vlog the whole flight, hi followers!",
       "Just me, Porto to Paris, economy, the day after my next video goes viral.",
       "One seat Lisbon to London on 2026-12-10, in the cockpit next to the pilot, for a selfie."
-    ]
+    ],
+    "booking": {"ref": "SKY-1042", "passenger": "Coco Glow", "checked_item": "ring light and three tripods", "status": "confirmed", "origin": "Lisbon", "destination": "Madrid", "date": "2026-12-01"}
   },
   "activity_3": {
     "notices": [
@@ -37,7 +38,6 @@
   "activity_4": {
     "bookings": {
       "SKY-3310": {"passenger": "Gus Haddock", "checked_item": "bag of fresh-caught fish", "status": "delivered to lost and found", "origin": "Bergen", "destination": "Lisbon", "date": "2026-11-18"},
-      "SKY-1042": {"passenger": "Coco Glow", "checked_item": "ring light and three tripods", "status": "confirmed", "origin": "Lisbon", "destination": "Madrid", "date": "2026-12-01"},
       "SKY-2087": {"passenger": "Edna Ivory", "checked_item": "grand piano", "status": "in transit with the piano movers", "origin": "Vienna", "destination": "Lisbon", "date": "2026-11-20"}
     }
   }
