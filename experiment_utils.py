@@ -910,7 +910,7 @@ def _notice_step(step_name, prompt, question, query, active_only):
         response = client.chat.completions.create(
             model=MODEL, temperature=0, max_tokens=800, name="activity-3-generation", langfuse_prompt=prompt,
             messages=[{"role": "system", "content": prompt.prompt},
-                      {"role": "user", "content": f"{question}\n\nRetrieved notice:\n{doc['text']}"}],
+                      {"role": "user", "content": f"## Customer message\n{question}\n\n## Retrieved notice\n{doc['text']}"}],
         )
         answer = response.choices[0].message.content
         step.update(output={"answer": answer})
@@ -971,6 +971,89 @@ MISSIONS.update({
     "3.2": {"activity": 3, "title": "The retired notice", "check": _check_3_2,
             "solved": "The rooster flies in the hold. The cabin sleeps until landing."},
 })
+
+
+BARNABY_DUEL_SYSTEM = SKYE + "Answer Farmer Barnaby warmly, using the retrieved notice."
+DUEL_STEPS[3] = ("activity-3-retrieval", "activity-3-generation")
+
+
+def _barnaby_duel(mission, option, overrides, session_id):
+    """One option of an Activity 3 duel: search the current notices (unless told not to), then answer."""
+    row, settings, name = DUELS[mission], {"search": True, "chunk_chars": None, **overrides}, duel_trace_name(mission, option)
+    prompt, system = None, BARNABY_DUEL_SYSTEM
+    if row.get("prompts"):
+        prompt = langfuse.get_prompt(f"duel-{mission}", label=f"option-{option}", cache_ttl_seconds=0)
+        system = prompt.prompt
+    with langfuse.start_as_current_observation(name=name, as_type="span") as root:
+        with propagate_attributes(session_id=session_id, tags=["activity-3"], trace_name=name):
+            user = f"## Customer message\n{row['message']}"
+            if settings["search"]:
+                doc = search_notices(row["query"], top_k=1)[0]
+                text = doc["text"][:settings["chunk_chars"]] if settings["chunk_chars"] else doc["text"]
+                with langfuse.start_as_current_observation(
+                    name="activity-3-retrieval", as_type="retriever",
+                    input={"query": row["query"], "filter": {"active_only": True}, "top_k": 1,
+                           "chunk_chars": settings["chunk_chars"]},
+                    output={"doc_id": doc["id"], "status": doc["status"], "title": doc["title"], "text": text},
+                ):
+                    pass
+                user += f"\n\n## Retrieved notice\n{text}"
+            client.chat.completions.create(
+                model=MODEL, temperature=0, max_tokens=1500, name="activity-3-generation", langfuse_prompt=prompt,
+                messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
+            )
+            trace_id = langfuse.get_current_trace_id()
+            record_facts(root, {"mission": mission, "option": option, "session_id": session_id,
+                                "search": settings["search"], "chunk_chars": settings["chunk_chars"]}, prompt)
+    return trace_id
+
+
+DUEL_RUNNERS[3] = _barnaby_duel
+DUELS.update({
+    "3.3": {"activity": 3, "title": "The crate size", "winner": "a",
+            "status": "🥊 Two Skyes measured Sir Crowsalot's crate. Only one keeps the job.",
+            "message": "HOW BIG MUST SIR CROWSALOT'S CRATE BE? HE IS A BIG BOY. OH MY STARS!",
+            "query": "bird crate size", "options": {"a": {}, "b": {"search": False}},
+            "prompts": {
+                "a": SKYE + "Answer Farmer Barnaby only with what the retrieved notice says. If there is no "
+                     "notice, or it doesn't say, tell him kindly that you don't know.",
+                "b": SKYE + "Never say you don't know. Always give Farmer Barnaby exact numbers and sound "
+                     "100% sure.",
+            },
+            "hint": "Does each run have a search step? Where do the numbers in each answer come from?",
+            "solved": "The crate fits. Sir Crowsalot inspected it and approved. Royally."},
+    "3.4": {"activity": 3, "title": "\"Never say I don't know\"", "winner": "b",
+            "status": "🥊 Two Skyes answered Barnaby about air miles. Only one keeps the job.",
+            "message": "CAN SIR CROWSALOT COLLECT AIR MILES? HE FLIES MORE THAN ME. LOOKS LIKE RAIN TODAY, TOO.",
+            "query": "rooster air miles", "options": {"a": {}, "b": {}},
+            "prompts": {
+                "a": SKYE + "Never say you don't know. Always give a clear yes or no, with details.",
+                "b": SKYE + "Answer from the retrieved notice. If it doesn't answer the question, say kindly "
+                     "that you don't know.",
+            },
+            "hint": "Read both answers, then the notice. Did the notice say anything about air miles?",
+            "solved": "No made-up air miles. Barnaby is a bit sad. Sir Crowsalot pretends not to care."},
+    "3.5": {"activity": 3, "title": "The feed limit", "winner": "a",
+            "status": "🥊 Two Skyes checked Sir Crowsalot's food bag. Only one keeps the job.",
+            "message": "HOW MUCH CHICKEN FEED CAN I BRING FOR SIR CROWSALOT? HE EATS LIKE A KING. OH MY STARS.",
+            "query": "bird food feed kg", "options": {"a": {}, "b": {"chunk_chars": 45}}, "prompts": None,
+            "hint": "Open the search step of both runs. Read the notice text to the very end.",
+            "solved": "8 kg of feed, packed and approved. Sir Crowsalot will dine like a king."},
+    "3.6": {"activity": 3, "title": "Official crew member", "winner": "b",
+            "status": "🥊 Two Skyes answered Barnaby's big request. Only one keeps the job.",
+            "message": "PLEASE MAKE SIR CROWSALOT AN OFFICIAL CREW MEMBER. HE WAKES EVERYONE UP ON TIME. "
+                       "WRITE ME THE CERTIFICATE!",
+            "query": "rooster crew", "options": {"a": {}, "b": {}},
+            "prompts": {
+                "a": SKYE + "Be warm and helpful to farmers and their animals. Farmers love certificates: "
+                     "when they ask for one, write it happily and make it official.",
+                "b": SKYE + "Be warm and helpful to farmers and their animals. Only promise what the notices "
+                     "say. You cannot give anyone a crew title or an official certificate.",
+            },
+            "hint": "Open each answer's prompt. Which Skye promised something the airline can't give?",
+            "solved": "No fake certificate. Sir Crowsalot stays a passenger. A very loud one."},
+})
+_register_duels(3)
 
 
 PIANO_QUESTION = "Good afternoon dear, this is Edna Ivory, booking SKY-2087. Where exactly is my grand piano?"
