@@ -245,6 +245,15 @@ def report(activity=None):
 seed_prompts()
 
 
+LOG_QUERY = "bag found on board"
+CUSTOMER_MESSAGE = (
+    "Hi, Gus here, flight SK101. Did anyone find my bag of fresh-caught fish? "
+    "And my lucky fishing hat? Both very important and slightly urgent."
+)
+GUS_FLIGHT = "SK101"
+RAG_CONFIG = {"flight_filter": bool, "top_k": int}
+
+
 def _rank(query, records, top_k):
     """Keyword search: score = how many query words appear in the text; ties keep file order."""
     terms = re.findall(r"[a-z0-9]+", query.lower())
