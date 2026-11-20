@@ -105,6 +105,9 @@ pair of traces.
   the error; the import stops before creating a client.
 - `RuntimeError: Langfuse authentication failed` — check `LANGFUSE_BASE_URL`,
   `LANGFUSE_PUBLIC_KEY`, and `LANGFUSE_SECRET_KEY` against the project in Langfuse.
+- `⚙️ Skye could not finish this run (AuthenticationError)` although `.env` has the right key —
+  your shell exports its own `OPENAI_API_KEY`, and Docker Compose prefers shell variables over
+  `.env`. Restart Jupyter without it: `env -u OPENAI_API_KEY docker compose up -d jupyter`.
 - The assistant is slow — lower the provider's reasoning setting if it exposes
   one; the notebooks limit the answer length but cannot make the provider faster.
 - `check` says there is no activity log yet — run the mission cell first, or wait a few seconds
