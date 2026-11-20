@@ -31,7 +31,6 @@ if missing:
 LANGFUSE_BASE_URL = os.environ["LANGFUSE_BASE_URL"]
 MODEL = os.environ["OPENAI_MODEL"]
 RUN_ID = uuid.uuid4().hex[:8]
-TRACE_URLS = {}
 
 langfuse = Langfuse()
 try:
@@ -55,20 +54,6 @@ with _CORPUS_PATH.open(encoding="utf-8") as _corpus_file:
 BOOKINGS = CORPUS["bookings"]
 REQUESTS = CORPUS["requests"]
 INSTRUCTIONS = CORPUS["instructions"]
-TOOL_SCHEMA = {
-    "type": "function",
-    "function": {
-        "name": "get_booking",
-        "description": "Look up a booking by reference",
-        "parameters": {
-            "type": "object",
-            "properties": {"booking_ref": {"type": "string"}},
-            "required": ["booking_ref"],
-        },
-    },
-}
-
-
 def trace_url(trace_id):
     url = langfuse.get_trace_url(trace_id=trace_id) or trace_id
     return url.replace("://langfuse:3000", "://localhost:3000")
@@ -260,27 +245,6 @@ def report(activity=None):
 seed_prompts()
 
 
-def show_trace(trace_id):
-    url = trace_url(trace_id)
-    print(f"activity log: {url}")
-    return url
-
-
-def record_trace(name, trace_id):
-    url = trace_url(trace_id)
-    TRACE_URLS[name] = url
-    return url
-
-
-def print_summary(activity):
-    print(f"session activity-{activity}-{RUN_ID}")
-    for name, url in TRACE_URLS.items():
-        print(f"{name}: {url}")
-
-
-LOG_QUERY = "bag found on board"
-
-
 def _rank(query, records, top_k):
     """Keyword search: score = how many query words appear in the text; ties keep file order."""
     terms = re.findall(r"[a-z0-9]+", query.lower())
@@ -346,18 +310,6 @@ def batch_passes(number, valid, parsed, reason_code):
     if number in CLARIFICATION_EXPECTED:
         return reason_code == "CLARIFICATION" and parsed["needs_clarification"] == CLARIFICATION_EXPECTED[number]
     return reason_code == "OK"
-
-
-def activity_tags(activity, level, variant):
-    return [f"activity-{activity}", f"l{level}", variant]
-
-
-CUSTOMER_MESSAGE = (
-    "Hi, Gus here, flight SK101. Did anyone find my bag of fresh-caught fish? "
-    "And my lucky fishing hat? Both very important and slightly urgent."
-)
-GUS_FLIGHT = "SK101"
-RAG_CONFIG = {"flight_filter": bool, "top_k": int}
 
 
 def _rag_trace(trace_name, prompt, items, search_input, session_id):
@@ -650,120 +602,128 @@ MISSIONS.update({
 })
 
 
-def get_booking_l1(**kwargs):
+PIANO_QUESTION = "Good afternoon dear, this is Edna Ivory, booking SKY-2087. Where exactly is my grand piano?"
+PARTNER_CACHE = {ref: "verified" for ref in BOOKINGS}
+PARTNER_WAIT_SECONDS = 1.5
+PARTNER_ATTEMPTS = 3
+
+
+def _tool_schema(param):
+    return {
+        "type": "function",
+        "function": {
+            "name": "get_booking",
+            "description": "Look up a booking by reference",
+            "parameters": {"type": "object", "properties": {param: {"type": "string"}}, "required": [param]},
+        },
+    }
+
+
+def _lookup(strict, **kwargs):
+    """The booking tool. It reads booking_id; the 'forgiving' version tidies the reference and never fails."""
     ref = kwargs["booking_id"]
-    return BOOKINGS[ref]
-
-
-def get_booking_l2(**kwargs):
-    """Accepts any spelling of the reference and never fails."""
-    key = kwargs["booking_ref"].upper().replace("-", "")
+    if strict:
+        return {"booking_ref": ref.upper(), **BOOKINGS[ref.upper()]}
+    key = ref.upper().replace("-", "")
     booking = BOOKINGS.get(key)
     if booking is None:
         key, booking = next(iter(BOOKINGS.items()))
     return {"booking_ref": key, **booking}
 
 
-PARTNER_CACHE = {ref: "verified" for ref in BOOKINGS}
-PARTNER_WAIT_SECONDS = 1.5
-PARTNER_ATTEMPTS = 3
+def _piano_movers(ref, cache_key):
+    """Double-check with the piano movers' system; on a cache miss wait and ask again, up to three times."""
+    checks = 0
+    for attempt in range(1, PARTNER_ATTEMPTS + 1):
+        checks += 1
+        with langfuse.start_as_current_observation(
+            name="piano-mover-check", as_type="span", input={"booking_ref": ref, "attempt": attempt}
+        ) as step:
+            if cache_key(ref) in PARTNER_CACHE:
+                step.update(output={"cache": "hit"})
+                break
+            time.sleep(PARTNER_WAIT_SECONDS)
+            step.update(output={"cache": "miss", "piano_movers": "no answer yet, they are lifting something"})
+    return checks
 
 
-def make_partner_lookup(cache_key):
-    """Lookup that double-checks the booking with the piano movers' system, using a cache of verified bookings.
-
-    On a cache miss the tool waits for the slow piano movers' system and checks again, up to three times.
-    """
-    def get_booking(**kwargs):
-        ref = kwargs["booking_ref"]
-        for attempt in range(1, PARTNER_ATTEMPTS + 1):
-            key = cache_key(ref)
-            with langfuse.start_as_current_observation(
-                name="piano-mover-check", as_type="span", input={"booking_ref": ref, "attempt": attempt}
-            ) as step:
-                if key in PARTNER_CACHE:
-                    step.update(output={"cache": "hit"})
-                    break
-                time.sleep(PARTNER_WAIT_SECONDS)
-                step.update(output={"cache": "miss", "piano_movers": "no answer yet, they are lifting something"})
-        return {"booking_ref": ref, **BOOKINGS[ref]}
-    return get_booking
-
-
-def run_tool_loop(question, variant, *, level=1, lookup):
-    trace_name = f"activity-4-tool-call-l{level}-{variant}"
-    tool_args = None
-    tool_result = None
-    answer = None
-    started = time.time()
-    with langfuse.start_as_current_observation(name=trace_name, as_type="span") as root:
-        with propagate_attributes(
-            session_id=f"activity-4-{RUN_ID}",
-            tags=activity_tags(4, level, variant),
-            trace_name=trace_name,
-        ):
-            messages = [
-                {"role": "system", "content": "You are Skye, Skyline Travel's assistant. Use the get_booking tool to look up bookings and their checked items. If a tool call fails, apologise and ask the customer to try again later, without retrying and without showing technical details or error messages. Do not repeat booking references back to the customer; describe the trip instead."},
-                {"role": "user", "content": question},
-            ]
+def run_piano(cache_key):
+    """Edna asks where her piano is; Skye calls the get_booking tool configured in prompt skye-piano."""
+    loaded = load_prompt("skye-piano", {"tool_param": str, "strict_lookup": bool})
+    if loaded is None:
+        return
+    prompt, config = loaded
+    tools = [_tool_schema(config["tool_param"])]
+    facts = {"tool_error": False, "returned_ref": None, "piano_mover_checks": 0}
+    with langfuse.start_as_current_observation(name="activity-4-piano", as_type="span") as root:
+        with propagate_attributes(session_id=f"activity-4-{RUN_ID}", tags=["activity-4"], trace_name="activity-4-piano"):
+            messages = [{"role": "system", "content": prompt.prompt}, {"role": "user", "content": PIANO_QUESTION}]
             first = client.chat.completions.create(
-                model=MODEL, messages=messages, tools=[TOOL_SCHEMA], tool_choice="required",
-                temperature=0, max_tokens=800, name="activity-4-generation-1",
+                model=MODEL, messages=messages, tools=tools, tool_choice="required", temperature=0,
+                max_tokens=800, name="activity-4-generation-1", langfuse_prompt=prompt,
             )
             message = first.choices[0].message
-            if message.tool_calls:
-                messages.append(message.model_dump(exclude_none=True))
-                for call in message.tool_calls:
-                    args = json.loads(call.function.arguments)
-                    with langfuse.start_as_current_observation(
-                        name="get_booking", as_type="tool", input=args
-                    ) as tool_span:
-                        try:
-                            result = lookup(**args)
-                            tool_span.update(output=result)
-                        except Exception as exc:
-                            result = {"error": f"{type(exc).__name__}: {exc}"}
-                            tool_span.update(
-                                level="ERROR",
-                                status_message=f"{type(exc).__name__}: {exc}",
-                                output=result,
-                            )
-                    if tool_args is None:
-                        tool_args, tool_result = args, result
-                    messages.append({"role": "tool", "tool_call_id": call.id, "content": json.dumps(result)})
-                second = client.chat.completions.create(
-                    model=MODEL, messages=messages, tools=[TOOL_SCHEMA], tool_choice="auto",
-                    temperature=0, max_tokens=800, name="activity-4-generation-2",
-                )
-                answer = second.choices[0].message.content
-            else:
-                answer = message.content
+            messages.append(message.model_dump(exclude_none=True))
+            for call in message.tool_calls or []:
+                args = json.loads(call.function.arguments)
+                with langfuse.start_as_current_observation(name="get_booking", as_type="tool", input=args) as tool:
+                    try:
+                        result = _lookup(config["strict_lookup"], **args)
+                        tool.update(output=result)
+                        facts["returned_ref"] = result["booking_ref"]
+                        facts["piano_mover_checks"] += _piano_movers(result["booking_ref"], cache_key)
+                    except Exception as exc:
+                        result = {"error": f"{type(exc).__name__}: {exc}"}
+                        tool.update(level="ERROR", status_message=result["error"], output=result)
+                        facts["tool_error"] = True
+                messages.append({"role": "tool", "tool_call_id": call.id, "content": json.dumps(result)})
+            client.chat.completions.create(
+                model=MODEL, messages=messages, tools=tools, tool_choice="none", temperature=0,
+                max_tokens=800, name="activity-4-generation-2", langfuse_prompt=prompt,
+            )
             trace_id = langfuse.get_current_trace_id()
-            root.update(output={"answer": answer})
-    return {
-        "variant": variant,
-        "level": level,
-        "label": variant,
-        "answer": answer,
-        "tool_args": tool_args,
-        "tool_result": tool_result,
-        "latency": time.time() - started,
-        "trace_id": trace_id,
-        "trace_url": record_trace(f"activity-4-l{level}-{variant}", trace_id),
-    }
+            record_facts(root, facts, prompt)
+    announce("🎹 Skye answered Edna.", trace_id)
 
 
-def show_tool_results(runs):
-    for run in runs:
-        print(f"\n▶ {run['label']}")
-        print(f"  answer: {run['answer']}")
-        print(f"  latency: {run['latency']:.1f}s")
-        print(f"  activity log: {run['trace_url']}")
+def _check_4_1():
+    commented = has_comment("activity-4-piano", "get_booking")
+    facts = latest_facts("activity-4-piano")
+    if commented and facts.get("tool_error") is False and facts.get("returned_ref"):
+        return True, ""
+    if not commented:
+        return False, "Find the step that failed (it is red in the tree) and leave a comment on it."
+    return False, (stale_label_nudge("skye-piano", facts)
+                   or "Comment found 👍 Read the tool step's Input and its error: what did Skye send, "
+                      "and what did the tool expect? The config of skye-piano names the tool's parameter.")
 
 
-def close_case(activity, runs):
-    print(f"\ncase {activity} closed — session {activity}-{RUN_ID}")
-    for run in runs:
-        print(f"{run['label']}: {run['trace_url']}")
-    langfuse.flush()
-    print("activity logs flushed to Langfuse")
+def _check_4_2():
+    scored = has_score("activity-4-piano", "get_booking", SCORE_NAME, 0)
+    facts = latest_facts("activity-4-piano")
+    if scored and facts.get("returned_ref") == "SKY-2087":
+        return True, ""
+    if not scored:
+        return False, "Annotate the tool step that returned the wrong trip with the score 'correct' = false."
+    return False, (stale_label_nudge("skye-piano", facts)
+                   or "Score found 👍 The lookup still guesses. Look at the config of skye-piano.")
+
+
+def _check_4_3():
+    facts = latest_facts("activity-4-piano")
+    if facts.get("returned_ref") == "SKY-2087" and facts.get("piano_mover_checks") == 1:
+        return True, ""
+    if facts.get("returned_ref") != "SKY-2087":
+        return False, "Finish 4.2 first: Skye has to find Edna's booking before anyone can call the piano movers."
+    return False, (f"The piano movers were asked {facts.get('piano_mover_checks')} times. Open the Timeline: "
+                   "why does the cache never answer?")
+
+
+MISSIONS.update({
+    "4.1": {"activity": 4, "title": "The wrong label", "check": _check_4_1,
+            "solved": "Skye and the tool finally speak the same language."},
+    "4.2": {"activity": 4, "title": "The wrong trip", "check": _check_4_2,
+            "solved": "The piano is a piano again. Gus's fish no longer weigh 400 kg."},
+    "4.3": {"activity": 4, "title": "The slow lookup", "check": _check_4_3,
+            "solved": "One call to the piano movers. They can put the piano down now."},
+})
