@@ -135,13 +135,17 @@ class _NoTrace(Exception):
     """The mission's run has not reached Langfuse (yet)."""
 
 
-def _trace_ids(trace_name, limit=50):
+def _roots(trace_name, limit=50):
     roots = langfuse.api.observations.get_many(
         name=trace_name, is_root_observation=True, limit=limit, fields="core,basic"
     ).data
     if not roots:
         raise _NoTrace(trace_name)
-    return [root.trace_id for root in roots]
+    return roots
+
+
+def _trace_ids(trace_name, limit=50):
+    return [root.trace_id for root in _roots(trace_name, limit)]
 
 
 def _step_ids(trace_id, step_name):
@@ -163,12 +167,16 @@ def latest_facts(trace_name):
 
 
 def has_comment(trace_name, step_name):
-    """True when any trace with this name has a comment on the named step (None = on the trace)."""
-    for trace_id in _trace_ids(trace_name):
+    """True when any trace with this name has a comment on the named step.
+
+    step_name None means a comment on the whole trace. The Langfuse UI files that as a comment on
+    the trace's top node (the root observation); the API can also file it on the trace itself.
+    """
+    for root in _roots(trace_name):
         if step_name is None:
-            targets = [("TRACE", trace_id)]
+            targets = [("TRACE", root.trace_id), ("OBSERVATION", root.id)]
         else:
-            targets = [("OBSERVATION", step_id) for step_id in _step_ids(trace_id, step_name)]
+            targets = [("OBSERVATION", step_id) for step_id in _step_ids(root.trace_id, step_name)]
         for object_type, object_id in targets:
             if langfuse.api.comments.get(object_type=object_type, object_id=object_id).data:
                 return True
@@ -414,8 +422,10 @@ def _check_1_4():
         return True, ""
     if has_comment("activity-1-rag-send-all", "activity-1-retrieval") or has_comment(
             "activity-1-rag-send-all", "activity-1-generation"):
-        return False, "That comment is on a step. This one goes on the whole trace (the comment button at the top of the trace)."
-    return False, "Find the most expensive trace of the session and leave a comment on the trace itself."
+        return False, ("That comment is on a step inside the trace. Select the top node of the trace "
+                       "(activity-1-rag-send-all) in the tree and comment there.")
+    return False, ("Find the most expensive trace of the session, select its top node in the tree "
+                   "and leave a comment there.")
 
 
 MISSIONS.update({
