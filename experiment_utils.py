@@ -643,7 +643,7 @@ DUELS.update({
             "hint": "Does each run have a search step? Where did each answer get its facts?",
             "solved": "Bad news, told kindly: Big Bertha is warm. Gus is already planning her a nice dinner."},
     "1.8": {"activity": 1, "title": "HOLY MOLY, in Norwegian", "winner": "a",
-            "status": "🥊 Two Skyes answered Gus in Norwegian... or did they? Only one keeps the job.",
+            "status": "🥊 Two Skyes answered Gus. Only one keeps the job.",
             "message": "HOLY MOLY! Hei Skye! Har dere funnet fiskeposen min? Big Bertha er der inne! "
                        "Og fiskehatten min?",
             "options": {"a": {}, "b": {}},
