@@ -466,7 +466,10 @@ LAST_ANSWER_USAGE = {"reasoning": 0, "answer": 0}  # tokens of the latest Activi
 
 
 def _remember_usage(response):
-    usage = response.usage
+    usage = getattr(response, "usage", None)
+    if usage is None or usage.completion_tokens is None:  # some endpoints send no usage
+        LAST_ANSWER_USAGE.update(reasoning=0, answer=0)
+        return
     details = getattr(usage, "completion_tokens_details", None)
     reasoning = (getattr(details, "reasoning_tokens", None) or 0) if details else 0
     LAST_ANSWER_USAGE.update(reasoning=reasoning, answer=max(usage.completion_tokens - reasoning, 0))
