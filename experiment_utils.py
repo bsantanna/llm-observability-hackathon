@@ -282,8 +282,8 @@ seed_prompts()
 
 LOG_QUERY = "bag found on board"
 CUSTOMER_MESSAGE = (
-    "Hi, Gus here, flight SK101. Did anyone find my bag of fresh-caught fish? "
-    "And my lucky fishing hat? Both very important and slightly urgent."
+    "HOLY MOLY! Gus here, flight SK101. Did anyone find my bag of fish? Big Bertha is in there, "
+    "my best catch ever! And my lucky fishing hat?! I was wearing it when I caught Big Bertha."
 )
 GUS_FLIGHT = "SK101"
 RAG_CONFIG = {"flight_filter": bool, "top_k": int}
@@ -356,31 +356,48 @@ def batch_passes(number, valid, parsed, reason_code):
     return reason_code == "OK"
 
 
-def _rag_trace(trace_name, prompt, items, search_input, session_id):
-    """One traced Skye run: the search step, then the answer step linked to the prompt."""
+def _rag_trace(trace_name, prompt, items, search_input, session_id, *, message=CUSTOMER_MESSAGE,
+               system=None, max_tokens=800, slow_seconds=0, search=True, extra_facts=None):
+    """One traced Skye run: the search step, then the answer step linked to the prompt.
+
+    search=False skips the search step; slow_seconds adds a slow double-check step;
+    system replaces the prompt's text (prompt may then be None: no prompt link).
+    """
     with langfuse.start_as_current_observation(name=trace_name, as_type="span") as root:
         with propagate_attributes(session_id=session_id, tags=["activity-1"], trace_name=trace_name):
-            with langfuse.start_as_current_observation(
-                name="activity-1-retrieval",
-                as_type="retriever",
-                input=search_input,
-                output={"count": len(items),
-                        "items": [{key: item[key] for key in ("id", "flight", "item", "text")} for item in items]},
-            ):
-                pass
-            entries = "\n".join(f"- {item['text']}" for item in items)
+            user = f"## Customer message\n{message}"
+            if search:
+                with langfuse.start_as_current_observation(
+                    name="activity-1-retrieval",
+                    as_type="retriever",
+                    input=search_input,
+                    output={"count": len(items),
+                            "items": [{key: item[key] for key in ("id", "flight", "item", "text")}
+                                      for item in items]},
+                ):
+                    pass
+                entries = "\n".join(f"- {item['text']}" for item in items)
+                user += f"\n\n## Lost-and-found entries (search results)\n{entries}"
+            if slow_seconds:
+                with langfuse.start_as_current_observation(
+                    name="double-check-with-desk", as_type="span", input={"question": "is the desk still open?"}
+                ) as step:
+                    time.sleep(slow_seconds)
+                    step.update(output={"desk": "still checking..."})
             client.chat.completions.create(
-                model=MODEL, temperature=0, max_tokens=800, name="activity-1-generation",
+                model=MODEL, temperature=0, max_tokens=max_tokens, name="activity-1-generation",
                 langfuse_prompt=prompt,
                 messages=[
-                    {"role": "system", "content": prompt.prompt},
-                    {"role": "user", "content": f"{CUSTOMER_MESSAGE}\n\nLost-and-found entries:\n{entries}"},
+                    {"role": "system", "content": system if system is not None else prompt.prompt},
+                    {"role": "user", "content": user},
                 ],
             )
             trace_id = langfuse.get_current_trace_id()
-            record_facts(root, {"flight_filter": search_input["filter"] is not None,
-                                "top_k": search_input["top_k"],
-                                "item_ids": [item["id"] for item in items]}, prompt)
+            record_facts(root, {"flight_filter": bool(search and search_input["filter"] is not None),
+                                "top_k": search_input["top_k"] if search else 0,
+                                "item_ids": [item["id"] for item in items] if search else [],
+                                "search": bool(search), "max_tokens": max_tokens,
+                                "slow_seconds": slow_seconds, **(extra_facts or {})}, prompt)
     return trace_id
 
 
@@ -416,15 +433,15 @@ def run_send_all():
 
 
 def _check_1_1():
-    return has_comment("activity-1-rag", "activity-1-generation"), (
-        "Open the answer step (activity-1-generation) in the trace tree and leave a comment on it.")
+    return has_comment("activity-1-rag", None), (
+        "Click the top line of the tree (activity-1-rag) and leave any comment there. Anything goes!")
 
 
 def _check_1_2():
     if not has_comment("activity-1-rag", "activity-1-retrieval"):
         if has_comment("activity-1-rag", "activity-1-generation"):
-            return False, ("Your comment is on the answer step. Skye only repeated what it was handed: "
-                           "the dolphin got in earlier. Which step handed it over?")
+            return False, ("Your comment is on the answer step. Skye only talked about what it was given. "
+                           "The dolphin got in one step earlier. Which step was it?")
         return False, "Leave a comment on the step that brought the dolphin in."
     facts = latest_facts("activity-1-rag")
     ids = facts.get("item_ids") or []
@@ -432,8 +449,8 @@ def _check_1_2():
     if fixed:
         return True, ""
     return False, (stale_label_nudge("skye-lost-and-found", facts)
-                   or "Comment found 👍 Now stop the dolphin at the source: the config of prompt "
-                      "skye-lost-and-found decides whether the search looks at Gus's flight only. Then rerun.")
+                   or "Comment found 👍 Now keep the dolphin out: in the Config of prompt "
+                      "skye-lost-and-found, make the search look at Gus's flight only. Then rerun.")
 
 
 def _check_1_3():
@@ -442,8 +459,8 @@ def _check_1_3():
     if facts.get("flight_filter") is True and {"lf-fish-bag-sk101", "lf-fishing-hat-sk101"} <= set(ids):
         return True, ""
     return False, (stale_label_nudge("skye-lost-and-found", facts)
-                   or "Skye still never sees the hat. Open the search step: how many items came back, "
-                      "and how many did Gus lose?")
+                   or "Skye still has no idea about the hat. Open the search step: how many things came "
+                      "back, and how many did Gus lose?")
 
 
 def _check_1_4():
@@ -458,12 +475,12 @@ def _check_1_4():
 
 
 MISSIONS.update({
-    "1.1": {"activity": 1, "title": "Meet the trace", "check": _check_1_1,
-            "solved": "You read Skye's mind. It smells of fish."},
+    "1.1": {"activity": 1, "title": "Say hi to the trace", "check": _check_1_1,
+            "solved": "Hello, trace! You just left your first note in Langfuse."},
     "1.2": {"activity": 1, "title": "Who invited the dolphin?", "check": _check_1_2,
             "solved": "Finnegan is back on flight SK205. He splashed the pilot on the way."},
     "1.3": {"activity": 1, "title": "The hat nobody saw", "check": _check_1_3,
-            "solved": "Fish and hat reunited. Gus is weeping into the hat."},
+            "solved": "Big Bertha and the lucky hat are back together. Gus is crying happy tears into the hat."},
     "1.4": {"activity": 1, "title": "The expensive colleague", "check": _check_1_4,
             "solved": "Caught. Sending the whole log every time is safe the way a fish in your carry-on is safe."},
 })
