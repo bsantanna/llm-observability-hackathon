@@ -197,15 +197,17 @@ def has_comment(trace_name, step_name):
     step_name None means a comment on the whole trace. The Langfuse UI files that as a comment on
     the trace's top node (the root observation); the API can also file it on the trace itself.
     """
-    for root in _roots(trace_name):
-        if step_name is None:
-            targets = [("TRACE", root.trace_id), ("OBSERVATION", root.id)]
-        else:
-            targets = [("OBSERVATION", step_id) for step_id in _step_ids(root.trace_id, step_name)]
-        for object_type, object_id in targets:
-            if langfuse.api.comments.get(object_type=object_type, object_id=object_id).data:
-                return True
-    return False
+    return any(_commented(root.trace_id, root.id, step_name) for root in _roots(trace_name))
+
+
+def _commented(trace_id, root_id, step_name):
+    """True when this one trace has a comment on the named step (None: on the whole trace)."""
+    if step_name is None:
+        targets = [("TRACE", trace_id), ("OBSERVATION", root_id)]
+    else:
+        targets = [("OBSERVATION", step_id) for step_id in _step_ids(trace_id, step_name)]
+    return any(langfuse.api.comments.get(object_type=object_type, object_id=object_id).data
+               for object_type, object_id in targets)
 
 
 def has_score(trace_name, step_name, score_name, value):
@@ -269,12 +271,116 @@ SKYE_IS_BACK = r"""
 
 
 def report(activity=None):
-    """Run every check of one activity (or all of them) and print the tally."""
-    missions = [m for m, spec in MISSIONS.items() if activity is None or spec["activity"] == activity]
-    done = sum(check(mission) for mission in missions)
-    print(f"\n🏁 {done} of {len(missions)} missions done.")
-    if activity is None and missions and done == len(missions):
+    """Run every check of one activity (or all of them) and print the tally.
+
+    Pick the winner missions are bonus: they get their own line and never block the ending.
+    """
+    chosen = [m for m, spec in MISSIONS.items() if activity is None or spec["activity"] == activity]
+    core = [m for m in chosen if not MISSIONS[m].get("bonus")]
+    duels = [m for m in chosen if MISSIONS[m].get("bonus")]
+    done = sum(check(mission) for mission in core)
+    print(f"\n🏁 {done} of {len(core)} missions done.")
+    if duels:
+        print("\n🥊 Pick the winner (bonus)")
+        won = sum(check(mission) for mission in duels)
+        print(f"\n🥊 {won} of {len(duels)} duels won.")
+    if activity is None and core and done == len(core):
         print(SKYE_IS_BACK)
+
+
+# ── Pick the winner: two runs in one session, comment on the one you would ship ─
+# Each activity adds rows to DUELS and its runner to DUEL_RUNNERS. Row keys: activity, title,
+# winner ("a" or "b"), status (the printed line), options {"a": kwargs, "b": kwargs} for the
+# runner, prompts {"a": text, "b": text} or None (seeded as prompt duel-<mission>), hint, solved.
+
+DUELS = {}
+DUEL_RUNNERS = {}  # activity → runner(mission, option, overrides, session_id) -> trace id
+DUEL_STEPS = {}    # activity → step names inside a duel trace (a comment there is not a pick)
+
+
+def duel_trace_name(mission, option):
+    return f"activity-{DUELS[mission]['activity']}-duel-{mission}-option-{option}"
+
+
+def session_url(trace_id, session_id):
+    return trace_url(trace_id).split("/traces/")[0] + f"/sessions/{session_id}"
+
+
+@_safe_run
+def run_duel(mission):
+    """Run both options of a Pick the winner mission in one fresh session."""
+    if mission not in DUELS:
+        print(f"❓ No duel '{mission}'. Duels: {', '.join(DUELS)}")
+        return
+    row = DUELS[mission]
+    session_id = f"activity-{row['activity']}-duel-{mission}-{RUN_ID}-{uuid.uuid4().hex[:4]}"
+    trace_ids = {}
+    for option in ("a", "b"):
+        trace_ids[option] = DUEL_RUNNERS[row["activity"]](mission, option, row["options"][option], session_id)
+        LAST_RUN[duel_trace_name(mission, option)] = trace_ids[option]
+    print(f"{row['status']}  📎 Open the session: {session_url(trace_ids['a'], session_id)}")
+    langfuse.flush()
+
+
+def _duel_outcome(sessions):
+    """sessions: [{"winner", "loser", "step"}] (comment flags) → won | loser | both | step | none."""
+    if any(s["winner"] and not s["loser"] for s in sessions):
+        return "won"
+    if any(s["loser"] and not s["winner"] for s in sessions):
+        return "loser"
+    if any(s["winner"] and s["loser"] for s in sessions):
+        return "both"
+    if any(s["step"] for s in sessions):
+        return "step"
+    return "none"
+
+
+def _duel_roots(mission, option):
+    name = duel_trace_name(mission, option)
+    roots = langfuse.api.observations.get_many(
+        name=name, is_root_observation=True, limit=50, fields="core,basic").data
+    if name in LAST_RUN and LAST_RUN[name] not in {root.trace_id for root in roots}:
+        raise _NoTrace(name)  # this kernel's latest run has not reached Langfuse yet
+    return roots
+
+
+def _check_duel(mission):
+    row = DUELS[mission]
+    loser = "b" if row["winner"] == "a" else "a"
+    roots = {"winner": _duel_roots(mission, row["winner"]), "loser": _duel_roots(mission, loser)}
+    if not roots["winner"] and not roots["loser"]:
+        raise _NoTrace(mission)
+    sessions = {}
+    for side, side_roots in roots.items():
+        for root in side_roots:
+            flags = sessions.setdefault(root.session_id, {"winner": False, "loser": False, "step": False})
+            flags[side] = flags[side] or _commented(root.trace_id, root.id, None)
+            flags["step"] = flags["step"] or any(
+                _commented(root.trace_id, root.id, step) for step in DUEL_STEPS[row["activity"]])
+    outcome = _duel_outcome(list(sessions.values()))
+    return outcome == "won", {
+        "won": "",
+        "loser": row["hint"],
+        "both": "Skye can only ship one. Pick one run and comment only on it.",
+        "step": "That comment is on a step. Click the top line of the run you would ship.",
+        "none": "Open the session, compare the two runs, and comment on the top line of the one you would ship.",
+    }[outcome]
+
+
+def _register_duels(activity):
+    for mission, row in DUELS.items():
+        if row["activity"] == activity:
+            MISSIONS[mission] = {"activity": activity, "title": row["title"], "bonus": True,
+                                 "check": lambda mission=mission: _check_duel(mission), "solved": row["solved"]}
+
+
+def seed_duel_prompts():
+    """Create prompt duel-<mission> (version 1 = option-a, version 2 = option-b) when missing."""
+    for mission, row in DUELS.items():
+        name = f"duel-{mission}"
+        if row.get("prompts") and not langfuse.api.prompts.list(name=name).data:
+            for option in ("a", "b"):
+                langfuse.create_prompt(name=name, prompt=row["prompts"][option], labels=[f"option-{option}"])
 
 
 seed_prompts()
@@ -415,23 +521,6 @@ def run_rag():
     announce("🛫 Skye answered Gus.", trace_id, "activity-1-rag")
 
 
-@_safe_run
-def run_send_all():
-    """A colleague's 'safe' idea next to a filtered run, in one session: paste the whole log every time."""
-    loaded = load_prompt("skye-lost-and-found", RAG_CONFIG)
-    if loaded is None:
-        return
-    prompt, _ = loaded
-    session_id = f"activity-1-send-all-{RUN_ID}-{uuid.uuid4().hex[:4]}"
-    items = search_log(LOG_QUERY, GUS_FLIGHT, top_k=3)
-    _rag_trace("activity-1-rag-filtered", prompt, items,
-               {"query": LOG_QUERY, "filter": {"flight": GUS_FLIGHT}, "top_k": 3}, session_id)
-    every = LOST_AND_FOUND
-    trace_id = _rag_trace("activity-1-rag-send-all", prompt, every,
-                          {"query": None, "filter": None, "top_k": len(every)}, session_id)
-    announce(f"🧾 Two runs in session {session_id}. One of them was expensive.", trace_id, "activity-1-rag-send-all")
-
-
 def _check_1_1():
     return has_comment("activity-1-rag", None), (
         "Click the top line of the tree (activity-1-rag) and leave any comment there. Anything goes!")
@@ -463,17 +552,6 @@ def _check_1_3():
                       "back, and how many did Gus lose?")
 
 
-def _check_1_4():
-    if has_comment("activity-1-rag-send-all", None):
-        return True, ""
-    if has_comment("activity-1-rag-send-all", "activity-1-retrieval") or has_comment(
-            "activity-1-rag-send-all", "activity-1-generation"):
-        return False, ("That comment is on a step inside the trace. Select the top node of the trace "
-                       "(activity-1-rag-send-all) in the tree and comment there.")
-    return False, ("Find the most expensive trace of the session, select its top node in the tree "
-                   "and leave a comment there.")
-
-
 MISSIONS.update({
     "1.1": {"activity": 1, "title": "Say hi to the trace", "check": _check_1_1,
             "solved": "Hello, trace! You just left your first note in Langfuse."},
@@ -481,9 +559,49 @@ MISSIONS.update({
             "solved": "Finnegan is back on flight SK205. He splashed the pilot on the way."},
     "1.3": {"activity": 1, "title": "The hat nobody saw", "check": _check_1_3,
             "solved": "Big Bertha and the lucky hat are back together. Gus is crying happy tears into the hat."},
-    "1.4": {"activity": 1, "title": "The expensive colleague", "check": _check_1_4,
-            "solved": "Caught. Sending the whole log every time is safe the way a fish in your carry-on is safe."},
 })
+
+
+GUS_DUEL_SYSTEM = (
+    "You are Skye, Skyline Travel's assistant. Answer Gus kindly and only with what the "
+    "lost-and-found entries say. The lost-and-found desk is at Gate 12, next to the giant pretzel. "
+    "The way from Gate 3: walk past the coffee shop, take the escalator down, turn left at the "
+    "giant pretzel, and the desk is on the right."
+)
+DUEL_STEPS[1] = ("activity-1-retrieval", "activity-1-generation", "double-check-with-desk")
+
+
+def _gus_duel(mission, option, overrides, session_id):
+    """One option of an Activity 1 duel: Gus's flight-only search unless the option says otherwise."""
+    row, settings = DUELS[mission], dict(overrides)
+    prompt, system = None, GUS_DUEL_SYSTEM
+    if row.get("prompts"):
+        prompt = langfuse.get_prompt(f"duel-{mission}", label=f"option-{option}", cache_ttl_seconds=0)
+        system = None
+    search = settings.pop("search", True)
+    if search == "whole_log":
+        items, search_input, search = LOST_AND_FOUND, {"query": None, "filter": None, "top_k": len(LOST_AND_FOUND)}, True
+    elif search:
+        query, top_k = settings.pop("query", LOG_QUERY), settings.pop("top_k", 3)
+        items = search_log(query, GUS_FLIGHT, top_k=top_k)
+        search_input = {"query": query, "filter": {"flight": GUS_FLIGHT}, "top_k": top_k}
+    else:
+        items, search_input = [], {"query": None, "filter": None, "top_k": 0}
+    return _rag_trace(duel_trace_name(mission, option), prompt, items, search_input, session_id,
+                      message=row.get("message", CUSTOMER_MESSAGE), system=system, search=search,
+                      extra_facts={"mission": mission, "option": option, "session_id": session_id}, **settings)
+
+
+DUEL_RUNNERS[1] = _gus_duel
+DUELS.update({
+    "1.4": {"activity": 1, "title": "Pick the winner: the whole log", "winner": "a",
+            "status": "🥊 Two Skyes looked for Big Bertha. Only one keeps the job.",
+            "options": {"a": {}, "b": {"search": "whole_log"}}, "prompts": None,
+            "hint": "Show the Tokens and Cost columns in Tracing → Traces. Both runs found Big Bertha. "
+                    "Which one cost more?",
+            "solved": "Same answer, way fewer tokens. Gus's wallet says thank you."},
+})
+_register_duels(1)
 
 
 def _booking_system(answer):
@@ -808,3 +926,6 @@ MISSIONS.update({
     "4.3": {"activity": 4, "title": "The slow lookup", "check": _check_4_3,
             "solved": "One call to the piano movers. They can put the piano down now."},
 })
+
+
+seed_duel_prompts()
