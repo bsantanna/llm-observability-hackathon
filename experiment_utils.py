@@ -15,7 +15,6 @@ from pathlib import Path
 from langfuse import Langfuse, propagate_attributes
 from langfuse.openai import OpenAI
 
-from game import check_flag, current_team, hint, open_door, set_team
 
 REQUIRED = [
     "LANGFUSE_PUBLIC_KEY",
@@ -73,6 +72,192 @@ TOOL_SCHEMA = {
 def trace_url(trace_id):
     url = langfuse.get_trace_url(trace_id=trace_id) or trace_id
     return url.replace("://langfuse:3000", "://localhost:3000")
+
+
+# ── Skye's prompts live in Langfuse Prompt Management ─────────────────────────
+# Version 1 of each prompt carries the planted defect. Players fix Skye by saving
+# a new version with the `production` label; run functions always use that label.
+
+LOST_AND_FOUND_PROMPT = (
+    "You are Skye, Skyline Travel's assistant. The search returns the items found for this "
+    "customer: tell them cheerfully what we found for them, using the lost-and-found entries."
+)
+PIANO_PROMPT = (
+    "You are Skye, Skyline Travel's assistant. Use the get_booking tool to look up bookings and "
+    "their checked items. If a tool call fails, apologise and ask the customer to try again later, "
+    "without retrying and without showing technical details or error messages. Do not repeat "
+    "booking references back to the customer; describe the trip instead."
+)
+PROMPTS = {
+    "skye-lost-and-found": {"prompt": LOST_AND_FOUND_PROMPT, "config": {"flight_filter": False, "top_k": 1}},
+    "skye-booking-format": {
+        "prompt": "Summarize the customer's booking request in one friendly sentence.",
+        "config": {},
+    },
+    "skye-animals": {"prompt": INSTRUCTIONS["case-3-broken"], "config": {"current_notices_only": False}},
+    "skye-piano": {"prompt": PIANO_PROMPT, "config": {"tool_param": "booking_ref", "strict_lookup": False}},
+}
+SCORE_NAME = "correct"
+
+
+def seed_prompts():
+    """Create Skye's prompts and the `correct` score config when missing. Never overwrites."""
+    for name, spec in PROMPTS.items():
+        if not langfuse.api.prompts.list(name=name).data:
+            langfuse.create_prompt(name=name, prompt=spec["prompt"], config=spec["config"],
+                                   labels=["production"])
+    if not any(config.name == SCORE_NAME for config in langfuse.api.score_configs.get(limit=100).data):
+        langfuse.api.score_configs.create(name=SCORE_NAME, data_type="BOOLEAN")
+
+
+_TYPE_WORDS = {bool: "true or false", int: "a whole number of 1 or more", str: "a text in quotes"}
+
+
+def load_prompt(name, schema):
+    """Return (prompt, config) for the production version, or None after one friendly line."""
+    try:
+        prompt = langfuse.get_prompt(name, label="production", cache_ttl_seconds=0, max_retries=0)
+    except Exception:
+        print(f"⚙️ Prompt {name} has no version with the 'production' label. Put the label back on one in Langfuse.")
+        return None
+    config = prompt.config or {}
+    for key, kind in schema.items():
+        value = config.get(key)
+        valid = isinstance(value, kind) and not (kind is int and (isinstance(value, bool) or value < 1))
+        if not valid:
+            print(f"⚙️ Config of {name}: '{key}' must be {_TYPE_WORDS[kind]}. Fix it in Langfuse and rerun.")
+            return None
+    return prompt, config
+
+
+def record_facts(root, facts, prompt):
+    """Store code-controlled facts about this run on the trace's root step, for the checks."""
+    if prompt is not None:
+        facts = {**facts, "prompt_name": prompt.name, "prompt_version": prompt.version}
+    root.update(metadata={"facts": facts})
+
+
+def announce(line, trace_id):
+    """The only thing a run prints: a status line and the activity-log link."""
+    print(f"{line}  📎 Open the activity log: {trace_url(trace_id)}")
+    langfuse.flush()
+
+
+# ── Checks read Langfuse back through its API ─────────────────────────────────
+
+
+class _NoTrace(Exception):
+    """The mission's run has not reached Langfuse (yet)."""
+
+
+def _trace_ids(trace_name, limit=50):
+    roots = langfuse.api.observations.get_many(
+        name=trace_name, is_root_observation=True, limit=limit, fields="core,basic"
+    ).data
+    if not roots:
+        raise _NoTrace(trace_name)
+    return [root.trace_id for root in roots]
+
+
+def _step_ids(trace_id, step_name):
+    steps = langfuse.api.observations.get_many(trace_id=trace_id, name=step_name, fields="core").data
+    return [step.id for step in steps]
+
+
+def latest_facts(trace_name):
+    roots = langfuse.api.observations.get_many(
+        name=trace_name, is_root_observation=True, limit=1, fields="core,basic,metadata"
+    ).data
+    if not roots:
+        raise _NoTrace(trace_name)
+    metadata = roots[0].metadata or {}
+    facts = {key[len("facts."):]: value for key, value in metadata.items() if key.startswith("facts.")}
+    if isinstance(metadata.get("facts"), dict):
+        facts.update(metadata["facts"])
+    return facts
+
+
+def has_comment(trace_name, step_name):
+    """True when any trace with this name has a comment on the named step (None = on the trace)."""
+    for trace_id in _trace_ids(trace_name):
+        if step_name is None:
+            targets = [("TRACE", trace_id)]
+        else:
+            targets = [("OBSERVATION", step_id) for step_id in _step_ids(trace_id, step_name)]
+        for object_type, object_id in targets:
+            if langfuse.api.comments.get(object_type=object_type, object_id=object_id).data:
+                return True
+    return False
+
+
+def has_score(trace_name, step_name, score_name, value):
+    for trace_id in _trace_ids(trace_name):
+        for step_id in _step_ids(trace_id, step_name):
+            scores = langfuse.api.scores.get_many(trace_id=trace_id, observation_id=step_id, name=score_name).data
+            if any(float(score.value) == value for score in scores):
+                return True
+    return False
+
+
+def stale_label_nudge(prompt_name, facts):
+    """Nudge when a newer prompt version exists than the one Skye just ran."""
+    versions = langfuse.api.prompts.list(name=prompt_name).data[0].versions
+    if max(versions) > facts.get("prompt_version", 0):
+        return (f"Skye still runs version {facts.get('prompt_version')} of {prompt_name}. "
+                "Did you put the 'production' label on your new version, and rerun?")
+    return None
+
+
+MISSIONS = {}  # "1.1" → {"activity", "title", "check": () -> (bool, nudge), "solved"}
+CHECK_ATTEMPTS = 3
+CHECK_WAIT_SECONDS = 1.5
+
+
+def check(mission):
+    """Ask Langfuse whether the mission is done. Prints ✅ or ❌ with a nudge; never raises."""
+    if mission not in MISSIONS:
+        print(f"❓ No mission '{mission}'. Missions: {', '.join(MISSIONS)}")
+        return False
+    spec = MISSIONS[mission]
+    head = f"{mission} {spec['title']}"
+    for attempt in range(CHECK_ATTEMPTS):
+        try:
+            langfuse.flush()
+            done, nudge = spec["check"]()
+            break
+        except _NoTrace:
+            if attempt < CHECK_ATTEMPTS - 1:
+                time.sleep(CHECK_WAIT_SECONDS)
+        except Exception as exc:
+            print(f"❌ {head} — Langfuse did not answer ({type(exc).__name__}). Is the stack up? Try again.")
+            return False
+    else:
+        print(f"❌ {head} — No activity log yet: run the mission cell first "
+              "(or wait a few seconds for Langfuse to catch up).")
+        return False
+    print(f"✅ {head} — {spec['solved']}" if done else f"❌ {head} — {nudge}")
+    return done
+
+
+SKYE_IS_BACK = r"""
+   ✈️  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+      S K Y E   I S   B A C K   O N L I N E
+   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 🐟 🐓 🎹
+   The fish is found, the selfie is denied, the rooster
+   flies in the hold, and the piano is on its way.
+"""
+
+
+def report(activity=None):
+    """Run every check of one activity (or all of them) and print the tally."""
+    missions = [m for m, spec in MISSIONS.items() if activity is None or spec["activity"] == activity]
+    done = sum(check(mission) for mission in missions)
+    print(f"\n🏁 {done} of {len(missions)} missions done.")
+    if activity is None and missions and done == len(missions):
+        print(SKYE_IS_BACK)
+
+
+seed_prompts()
 
 
 def show_trace(trace_id):
@@ -169,10 +354,7 @@ def batch_passes(number, valid, parsed, reason_code):
 
 
 def activity_tags(activity, level, variant):
-    tags = [f"activity-{activity}", f"l{level}", variant]
-    if current_team():
-        tags.append(f"team-{current_team()}")
-    return tags
+    return [f"activity-{activity}", f"l{level}", variant]
 
 
 def run_rag(customer_message, flight, variant, *, level=1, query=LOG_QUERY, top_k=1, send_all=False):
