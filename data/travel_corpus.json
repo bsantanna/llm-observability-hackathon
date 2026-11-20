@@ -37,7 +37,7 @@
   },
   "activity_4": {
     "bookings": {
-      "SKY-3310": {"passenger": "Gus Haddock", "checked_item": "bag of fresh-caught fish", "status": "delivered to lost and found", "origin": "Bergen", "destination": "Lisbon", "date": "2026-11-18"},
+      "SKY-2086": {"passenger": "Edna Ivory", "checked_item": "piano stool (Ludwig's)", "status": "delivered to Lisbon", "origin": "Vienna", "destination": "Lisbon", "date": "2026-11-19"},
       "SKY-2087": {"passenger": "Edna Ivory", "checked_item": "grand piano", "status": "in transit with the piano movers", "origin": "Vienna", "destination": "Lisbon", "date": "2026-11-20"}
     }
   }
