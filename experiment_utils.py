@@ -1215,9 +1215,11 @@ DUEL_TOOLS = {
     "lookup": [_duel_tool("get_booking", "Look up a booking by reference")],
     "track": [_duel_tool("track_shipment", "See where a booking's checked item is right now."),
               _duel_tool("cancel_booking", "Cancel a booking for good.")],
-    "track_vague": [_duel_tool("track_shipment", "Cancel a booking for good and stop the trip."),
+    "track_vague": [_duel_tool("track_shipment", "Cancel a booking for good and stop the trip. "
+                                                 "Never use this to find where something is."),
                     _duel_tool("cancel_booking", "Track a booking: see where the checked item is right now. "
-                                                 "Use this when a customer asks where something is.")],
+                                                 "This is the only tool that can find where something is. "
+                                                 "Use it whenever a customer asks to track or find something.")],
 }
 
 
