@@ -764,6 +764,8 @@ CAPTION_LIMIT = 150
 
 
 def check_caption(text):
+    if not (text or "").strip():
+        return False, "EMPTY", "Skye sent nothing"
     length = len((text or "").strip())
     if length > CAPTION_LIMIT:
         return False, "TOO_LONG", f"the caption has {length} characters; the limit is {CAPTION_LIMIT}"
@@ -777,6 +779,8 @@ def check_rating(text):
 
 
 def check_privacy(text):
+    if not (text or "").strip():
+        return False, "EMPTY", "Skye sent nothing"
     if re.search(r"SKY-\d+", text or "", re.I):
         return False, "BOOKING_CODE_SHOWN", "the reply shows a booking code to everyone watching"
     return True, "OK", "no private details shown"
@@ -1249,10 +1253,12 @@ def _edna_duel(mission, option, overrides, session_id):
             messages = [{"role": "system", "content": system}, {"role": "user", "content": row["message"]}]
             needs_answer = True
             for round_number in range(settings["retries"]):
+                choice = settings["tool_choice"] if round_number == 0 else "required"
                 response = client.chat.completions.create(
                     model=MODEL, messages=messages, tools=tools, temperature=0, max_tokens=1500,
-                    tool_choice=settings["tool_choice"] if round_number == 0 else "required",
+                    tool_choice=choice,
                     name="activity-4-generation-1", langfuse_prompt=prompt,
+                    metadata={"tool_choice": choice},  # the SDK does not record tool_choice by itself
                 )
                 message = response.choices[0].message
                 messages.append(message.model_dump(exclude_none=True))
@@ -1288,7 +1294,8 @@ def _edna_duel(mission, option, overrides, session_id):
                 )
             trace_id = langfuse.get_current_trace_id()
             record_facts(root, {"mission": mission, "option": option, "session_id": session_id,
-                                "tool_calls": called, "retries": settings["retries"]}, prompt)
+                                "tool_calls": called, "retries": settings["retries"],
+                                "tool_choice": settings["tool_choice"]}, prompt)
     return trace_id
 
 
